@@ -31,50 +31,50 @@ end
 
 
 function CropCenter(Data, side)
-	if (Data:dim() == 2) then
+    if (Data:dim() == 2) then
         local resized = CropCenter(Data:reshape(1,Data:size(1), Data:size(2)), side)
         return resized:reshape(resized:size(2),resized:size(3))
     end
-	local x1 = math.max(math.floor((Data:size(3) - side) / 2),1)
+    local x1 = math.max(math.floor((Data:size(3) - side) / 2),1)
     local y1 = math.max(math.floor((Data:size(2) - side) / 2),1)
     local x2 = math.min(x1 + side -1,Data:size(3))
     local y2 = math.min(y1 + side -1,Data:size(2))
     local CroppedData = Data[{{},{y1,y2},{x1,x2}}]
-	return CroppedData
+    return CroppedData
 end
 
 rnd_rotate = function(angle_range)
-	
-        apply_rot = function(Data)
-				angle = math.random(-angle_range,angle_range)
-				mirrored = math.random(0,1)==1
-				Data = image.rotate(Data,math.rad(angle))
-				
-      			if (mirrored) then
-					Data = image.hflip(Data)
-				end
-				return Data
-	end
-	return apply_rot
+
+    apply_rot = function(Data)
+        angle = math.random(-angle_range,angle_range)
+        mirrored = math.random(0,1)==1
+        Data = image.rotate(Data,math.rad(angle))
+
+        if (mirrored) then
+            Data = image.hflip(Data)
+        end
+        return Data
+    end
+    return apply_rot
 end	
 
 
 rnd_rotate_crop = function(angle_range,side)
-	
-        apply_rot = function(Data)
-				angle = math.random(-angle_range,angle_range)
-				mirrored = math.random(0,1)==1
-      			if (Data:size()[2] ~= side) then --don't rotate and crop if already same size
-					Data = image.rotate(Data,math.rad(angle))
-					Data = crop_center(Data,side)
-				end
-      			if (mirrored) then
-					Data = image.hflip(Data)
-				end
-				
-			return Data
-	end
-	return apply_rot
+
+    apply_rot = function(Data)
+        angle = math.random(-angle_range,angle_range)
+        mirrored = math.random(0,1)==1
+        if (Data:size()[2] ~= side) then --don't rotate and crop if already same size
+            Data = image.rotate(Data,math.rad(angle))
+            Data = crop_center(Data,side)
+        end
+        if (mirrored) then
+            Data = image.hflip(Data)
+        end
+
+        return Data
+    end
+    return apply_rot
 end	
 
 
