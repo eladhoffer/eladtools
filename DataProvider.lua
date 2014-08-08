@@ -1,54 +1,80 @@
-local DataProvider = torch.class('util.DataProvider')
+require 'xlua'
 
+local DataProvider = torch.class('DataProvider')
 function DataProvider:__init(...)
-   xlua.require('image',true)
-   self.numSamples = 0
-   if select('#',...) > 0 then
-  	self:load(...)
-   end
+    xlua.require('image',true)
+    xlua.require('torch',true)
+    self:load(...)
 
-   self.BatchFilename = function(num) return paths.concat(self.CachePrefix,num) end
 end
 
 function DataProvider:size()
-   return self.numSamples
+    return self.TotalnumItems
 end
 
 function DataProvider:__tostring__()
-   str = 'DataProvider:\n'
-   if self.numSamples then
-  	str = str .. ' + num samples : '..self.numSamples
-   else
-  	str = str .. ' + empty set...'
-   end
-   return str
+    str = 'DataProvider:\n'
+    if #self.Items > 0 then
+        str = str .. ' + num samples : '.. #self.Items
+    else
+        str = str .. ' + empty set...'
+    end
+    return str
 end
 
 function DataProvider:load(...)
-   -- parse args
-   local args, dataSetFolder, numSamplesRequired, cacheFile, channels,
-   sampleSize,padding
-  	= xlua.unpack(
-  	{...},
-  	'DataProvider.load', nil,
-  	{arg='dataSetFolder', type='string', help='path to dataset', req=true},
-  	{arg='numSamplesRequired', type='number', help='number of patches to load', default='all'},
-  	{arg='cachePrefix', type='string', help='path to file to cache files'},
-  	{arg='sampleSize', type='table', help='resize all sample: {c,w,h}'},
-  	{arg='padding', type='boolean', help='center sample in w,h dont rescale'}
-   )
-   self.CachePrefix = CachePrefix or './'
-   self.cacheFileName = c or self.cacheFileName
-self.CurrentItemOverall
-self.CurrentItemBatch
-self.BatchSize
+    -- parse args
+    local args, cachePrefix, sampleSize, labelSize
+    = xlua.unpack(
+    {...},
+    'DataProvider.load', nil,
+    {arg='cachePrefix', type='string', help='path to file to cache files', default ='.'},
+    {arg='sampleSize', type='table', help='size of sample: example - {c,w,h}'},
+    {arg='labelSize', type='table', help='size of label for each sample', default = {1}}
+    )
+    self.CachePrefix = CachePrefix
+    self.sampleSize = sampleSize
+    self.labelSize = labelSize
+    if #self.labelSize == 1 then
+        self.labelSize = self.labelSize[1]
+    end
+    self.itemslistFile = paths.concat(self.cachePrefix, 'ItemsList')
+    if paths.filep(self.itemslistFile) then
+        self.Items = torch.load(self.itemslistFile)
+    else
+        self.Items = {}
+    end
 
+end
+function subdirs(path, listDirs )
+    local listDirs = listDirs or {paths.concat('.',path)}
+    for f in paths.files(path) do
+        local filename = paths.concat(path,f)
+        if paths.dirp(filename) and (f~='..') and (f~='.') then
+            table.insert(listDirs,filename)
+            subdirs(filename, listDirs)
+        end
+    end
+    return listDirs
+end
 
+function DataProvider:BatchFilename(num) 
+    return paths.concat(self.CachePrefix,num) 
+end
 
+function DataProvider:SaveItemsList()
+    torch.save(self.itemslistFile, self.Items)
+end
 
+function DataProvider:ItemsLoaded()
+    return #self.Items > 0
+end
 
 function DataProvider:GenerateFilenames(path, subfolders)
     local subfolders = subfolders or false
+    if subfolders then
+        path = ExpandSubDirs(path)
+    end
     if type(path)=='table' then
         for _,p in pairs(path) do
             self:GenerateFilenames(p,subfolders)
@@ -56,76 +82,102 @@ function DataProvider:GenerateFilenames(path, subfolders)
     else
         for f in paths.files(path) do
             local filename = paths.concat(path,f)
-            if paths.dirp(filename) and subfolders and (f~='..') and (f~='.') then
-                self:GenerateFilenames(filename, true)
-            elseif paths.filep(filename) then
-                table.insert(self.Filenames, filename)
+            if paths.filep(filename) then
+                table.insert(self.Items, {Filename = filename, Label = {}, Transformation = 1})
+                self.TotalnumItems = self.TotalnumItems + 1
             end
         end
     end
 end
 
-function DataProvider:AddPrepFunc(prep)
-    table.insert(self.Preprocessors, prep)
-    local NewItems = torch.LongTensor(#self.Filenames, self.NumClassLabels + 2)
-    NewItems[{{},1}] = torch.range(1,#self.Filenames)
-    NewItems[{{},self.NumClassLabels+2}]:fill(#self.Preprocessors)
-    NewItems[{{},{2,self.NumClassLabels+1}}] = self.LabelFunc(self.Filenames)
+function DataProvider:AddFilenames(fs, searchpaths)
+    local path = searchpaths or {'.'}
 
-    self.Items = self.Items:cat(NewItems,1)
-end
-
-local function CreateData()
-    local Attributes = {}
-    local curr = #Filenames+1
-    for i=1, m:size(2) do
-        local ClassID = tostring(m[1][i])
-        local NumImg = tostring(m[2][i])
-        if #ClassID < 8 then
-            ClassID = "0" .. ClassID
+    local subfolders = subfolders or false
+    if type(path) =='table' then
+        for _,p in pairs(path) do
+            self:AddFilenames(fs,p)
         end
-        ClassID = "n" .. ClassID
-        local filename  = path .. ClassID .. "/" .. ClassID .. '_' .. NumImg .. ".JPEG"
-        --print(filename)
-
-        if paths.filep(filename) then
-            --print('Valid')
-            Filenames[curr] = filename
-            Attributes[curr] = m[{{3,27},i}]
-            curr = curr+1
+    else
+        for _,f in pairs(fs) do
+            local filename = paths.concat(path,f)
+            if paths.filep(filename) then
+                table.insert(self.Items, {Filename = filename, Label = {}, Transformation = 1})
+                self.TotalnumItems = self.TotalnumItems + 1
+            end
         end
     end
-    return Filenames, tableToTensor(Attributes)
+end
+
+
+function DataProvider:AddPrepFunc(prep)
+    table.insert(self.Preprocessors, prep)
+    local numItems = #self.Items
+    for i=1, numItems do
+        table.insert(self.Items, {Filename = self.Items[i].Filename, Label = self.Items[i].Label, Transformation = #self.Preprocessors})
+    end
 end
 
 function DataProvider:InitBatch(numElements,typeTensor)
-    local BatchSize = {NumElements}
+    self.NumBatchElements = numElements
+    local BatchSize = {numElements}
+    local BatchLabelsSize = {numElements}
     for _,k in pairs(self.sampleSize) do
         table.insert(BatchSize,k)
     end
-    self.Batch = torch.Tensor(torch.LongStorage(BatchSize))
+    if type(self.lableSize) == 'table' then
+        for _,k in pairs(self.lableSize) do
+            table.insert(BatchLabelsSize,k)
+        end
+    else 
+        if self.sampleSize > 1 then
+            table.insert(BatchLabelsSize,self.sampleSize)
+        end
+    end
+    self.Batch.Data = torch.Tensor(torch.LongStorage(BatchSize))
+    self.Batch.Labels = torch.Tensor(torch.LongStorage(BatchLabelsSize))
     if typeTensor then
-        self.Batch = self.Batch:type(typeTensor)
+        self.Batch.Data = self.Batch.Data:type(typeTensor)
+        self.Batch.Labels = self.Batch.Labels:type(typeTensor)
     end
     return self.Batch
 end
 
+function DataProvider:InitBatchData(data)
+    self.Batch.Data = data.Labels
+    self.Batch.Labels = data.Labels
+end
+
 function DataProvider:InitMiniBatch(numElements,typeTensor)
-    local BatchSize = {NumElements}
+    self.NumMiniBatchElements = numElements
+    local BatchSize = {numElements}
+    local BatchLabelsSize = {numElements}
     for _,k in pairs(self.sampleSize) do
         table.insert(BatchSize,k)
     end
-    self.MiniBatch = torch.Tensor(torch.LongStorage(BatchSize))
+    if type(self.lableSize) == 'table' then
+        for _,k in pairs(self.lableSize) do
+            table.insert(BatchLabelsSize,k)
+        end
+    else 
+        if self.sampleSize > 1 then
+            table.insert(BatchLabelsSize,self.sampleSize)
+        end
+    end
+    self.MiniBatch.Data = torch.Tensor(torch.LongStorage(BatchSize))
+    self.MiniBatch.Labels = torch.Tensor(torch.LongStorage(BatchLabelsSize))
     if typeTensor then
-        self.MiniBatch = self.MiniBatch:type(typeTensor)
+        self.MiniBatch.Data = self.Batch.Data:type(typeTensor)
+        self.MiniBatch.Labels = self.Batch.Labels:type(typeTensor)
     end
     return self.MiniBatch
 end
 
 function DataProvider:loadBatch(batchnumber)
     local batchnumber = batchnumber or self.CurrentBatchNum
-    if paths.filep(DataProvider.BatchFilename(batchnumber)) then
-        self.Batch = torch.load(paths.concat(CachePrefix,filename))
+    local batchfilename = self:BatchFilename(batchnumber)
+    if paths.filep(batchfilename) then
+        self.Batch = torch.load(batchfilename)
         self.CurrentBatchNum = batchnumber
         return true
     else
@@ -134,23 +186,25 @@ function DataProvider:loadBatch(batchnumber)
 end
 
 function DataProvider:saveBatch()
-    self.Batch = torch.save(DataProvider.BatchFilename(self.CurrentBatchNum), self.Batch)
+    torch.save(DataProvider.BatchFilename(self.CurrentBatchNum), self.Batch)
 end
 
 function DataProvider:CreateBatch()
-    if self.Items:size(1) < self.CurrentItemOverall then
-        return false
+    if #self.Items == 0 then
+        return nil
     end
-    
-    if self.Items:size(1) < self.CurrentItemOverall + self.Batch:size(1) - 1 then
-        self:InitBatch(self.Items:size(1) - self.CurrentItemOverall + 1)
+
+    if #self.Items <  self.NumBatchElements then
+        self:InitBatch(#self.Items )
     end
-    for i = 1,self.Batch:size(1) do
-        local PrepFunc = self.Preprocessors[self.Items[i][#NumClassLabels+1]]
-        local Sample = self.FileLoader(self.Filenames[self.Items[i][1]])
-        self.Batch[i] = PrepFunc(Sample)
-        xlua.progress(i, self.Batch:size(1))
-        self.CurrentItemOverall = self.CurrentItemOverall + 1
+    for i = 1,self.NumBatchElements do
+        local PrepFunc = self.Preprocessors[self.Items[1].Transformation]
+        local Sample = self.FileLoader(self.Items[1].Filename)
+        local Label = self.LabelFunction(self.Item[1])
+        self.Batch.Data[i] = PrepFunc(Sample)
+        self.Bath.Labels[i] = Label
+        xlua.progress(i, self.NumBatchElements)
+        table.remove(self.Items,1)
     end
     self.CurrentBatchNum = self.CurrentBatchNum + 1
     return self.Batch
@@ -158,13 +212,38 @@ end
 
 
 function DataProvider:GetNextBatch()
+    if self.EndOfData then
+        return nil
+    end
     if self.NumBatches < self.CurrentBatchNum then
         self.CurrentBatchNum = self.CurrentBatchNum + 1
         if not self:loadBatch() then
             DataProvider:CreateBatch()
         end
-        return true
+        self.CurrentItemBatch = 1
+        return self.Batch
     else
-        return false
+        return nil
     end
 end
+
+function DataProvider:GetNextMiniBatch()
+    if self.EndOfData then
+        return nil
+    end
+
+    for i=1,self.NumMiniBatchElements do
+        if self.CurrentItemBatch > self.NumBatchElements then
+            if not self:GetNextBatch() then
+                self.EndOfData = true
+                return self.MiniBatch.Data, self.MiniBatch.Labels
+            end
+        end
+        self.MiniBatch[i].Data = self.Batch.Data[self.CurrentItemBatch]
+        self.MiniBatch[i].Labels = self.Batch.Labels[self.CurrentItemBatch]
+        self.CurrentItemBatch = self.CurrentItemBatch + 1
+    end
+    return self.MiniBatch.Data, self.MiniBatch.Labels
+end
+
+
