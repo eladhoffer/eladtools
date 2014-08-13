@@ -5,7 +5,6 @@ function DataProvider:__init(...)
     xlua.require('image',true)
     xlua.require('torch',true)
     self:load(...)
-
 end
 
 function DataProvider:size()
@@ -22,27 +21,21 @@ function DataProvider:__tostring__()
     return str
 end
 
-function DataProvider:load(...)
+function DataProvider:load(CachePrefix, sampleSize, labelSize)
     -- parse args
-    local args, cachePrefix, sampleSize, labelSize
-    = xlua.unpack(
-    {...},
-    'DataProvider.load', nil,
-    {arg='cachePrefix', type='string', help='path to file to cache files', default ='.'},
-    {arg='sampleSize', type='table', help='size of sample: example - {c,w,h}'},
-    {arg='labelSize', type='table', help='size of label for each sample', default = {1}}
-    )
-    self.CachePrefix = CachePrefix
+    self.CachePrefix = CachePrefix or '.'
     self.sampleSize = sampleSize
-    self.labelSize = labelSize
+    self.labelSize = labelSize or {1}
     if #self.labelSize == 1 then
         self.labelSize = self.labelSize[1]
     end
-    self.itemslistFile = paths.concat(self.cachePrefix, 'ItemsList')
+    self.itemslistFile = paths.concat(self.CachePrefix, 'ItemsList')
     if paths.filep(self.itemslistFile) then
         self.Items = torch.load(self.itemslistFile)
+        self.TotalnumItems = #self.Items
     else
         self.Items = {}
+        self.TotalnumItems = 0
     end
 
 end
@@ -52,7 +45,6 @@ function subdirs(path, listDirs )
         local filename = paths.concat(path,f)
         if paths.dirp(filename) and (f~='..') and (f~='.') then
             table.insert(listDirs,filename)
-            subdirs(filename, listDirs)
         end
     end
     return listDirs
@@ -73,27 +65,30 @@ end
 function DataProvider:GenerateFilenames(path, subfolders)
     local subfolders = subfolders or false
     if subfolders then
-        path = ExpandSubDirs(path)
+        path = subdirs(path)
     end
+    local path_list
     if type(path)=='table' then
-        for _,p in pairs(path) do
-            self:GenerateFilenames(p,subfolders)
-        end
+        path_list = path
     else
-        for f in paths.files(path) do
-            local filename = paths.concat(path,f)
+        path_list = {path}
+    end
+    for _,p in pairs(path_list) do
+        print('Generating filenames from path' .. p)
+        for f in paths.files(p) do
+            local filename = paths.concat(p,f)
             if paths.filep(filename) then
                 table.insert(self.Items, {Filename = filename, Label = {}, Transformation = 1})
                 self.TotalnumItems = self.TotalnumItems + 1
             end
         end
     end
+
 end
 
 function DataProvider:AddFilenames(fs, searchpaths)
     local path = searchpaths or {'.'}
 
-    local subfolders = subfolders or false
     if type(path) =='table' then
         for _,p in pairs(path) do
             self:AddFilenames(fs,p)
@@ -245,5 +240,6 @@ function DataProvider:GetNextMiniBatch()
     end
     return self.MiniBatch.Data, self.MiniBatch.Labels
 end
+
 
 
