@@ -8,4 +8,4 @@ torch.include('eladtools', 'SpatialLogSoftMax.lua')
 torch.include('eladtools', 'PairwiseCriterion.lua')
 torch.include('eladtools', 'utils.lua')
 
-torch.include('DataProvider', 'DataProvider.lua')
+--torch.include('DataProvider', 'DataProvider.lua')
