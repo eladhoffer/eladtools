@@ -21,9 +21,10 @@ function DataProvider:__tostring__()
     return str
 end
 
-function DataProvider:load(CachePrefix, sampleSize, labelSize)
+function DataProvider:load(CachePrefix, sampleSize, labelSize, CacheFiles)
     -- parse args
     self.CachePrefix = CachePrefix or '.'
+    self.CacheFiles = CacheFiles or false
     self.sampleSize = sampleSize
     self.labelSize = labelSize or {1}
     self.Preprocessors = {}
@@ -40,6 +41,7 @@ function DataProvider:load(CachePrefix, sampleSize, labelSize)
         self.TotalnumItems = 0
     end
 
+    self.CurrentItem = 1
     self.FileLoader = image.loadJPG
 end
 function subdirs(path, listDirs )
@@ -54,7 +56,7 @@ function subdirs(path, listDirs )
 end
 
 function DataProvider:BatchFilename(num) 
-    return paths.concat(self.CachePrefix,num) 
+    return paths.concat(self.CachePrefix,'Batch' .. num) 
 end
 
 function DataProvider:SaveItemsList()
@@ -156,7 +158,7 @@ function DataProvider:InitBatch(numElements,typeTensor)
         self.Batch.Data = self.Batch.Data:type(typeTensor)
         self.Batch.Labels = self.Batch.Labels:type(typeTensor)
     end
-    self.CurrentBatchNum = 1
+    self.CurrentBatchNum = 0
     self.NumBatches = math.ceil(self.TotalnumItems/self.NumBatchElements)
     return self.Batch
 end
@@ -164,6 +166,17 @@ end
 function DataProvider:InitBatchData(data)
     self.Batch.Data = data.Labels
     self.Batch.Labels = data.Labels
+end
+
+function DataProvider:ResetCount()
+    self.CurrentBatchNum = 0
+    self.CurrentItemBatch = 1
+    self.CurrentItem = 1
+
+end
+
+function DataProvider:CurrentItemCount()
+    return self.CurrentItem
 end
 
 function DataProvider:InitMiniBatch(numElements,typeTensor)
@@ -186,14 +199,14 @@ function DataProvider:InitMiniBatch(numElements,typeTensor)
     self.MiniBatch.Data = torch.Tensor(torch.LongStorage(BatchSize))
     self.MiniBatch.Labels = torch.Tensor(torch.LongStorage(BatchLabelsSize))
     if typeTensor then
-        self.MiniBatch.Data = self.Batch.Data:type(typeTensor)
-        self.MiniBatch.Labels = self.Batch.Labels:type(typeTensor)
+        self.MiniBatch.Data = self.MiniBatch.Data:type(typeTensor)
+        self.MiniBatch.Labels = self.MiniBatch.Labels:type(typeTensor)
     end
     self.CurrentItemBatch = 1
     return self.MiniBatch
 end
 
-function DataProvider:loadBatch(batchnumber)
+function DataProvider:LoadBatch(batchnumber)
     local batchnumber = batchnumber or self.CurrentBatchNum
     local batchfilename = self:BatchFilename(batchnumber)
     if paths.filep(batchfilename) then
@@ -205,8 +218,8 @@ function DataProvider:loadBatch(batchnumber)
     end
 end
 
-function DataProvider:saveBatch()
-    torch.save(DataProvider.BatchFilename(self.CurrentBatchNum), self.Batch)
+function DataProvider:SaveBatch()
+    torch.save(self:BatchFilename(self.CurrentBatchNum), self.Batch)
 end
 
 function DataProvider:CreateBatch()
@@ -225,45 +238,59 @@ function DataProvider:CreateBatch()
         self.Batch.Labels[i] = Item.Label
         xlua.progress(i, self.NumBatchElements)
     end
-    self.CurrentBatchNum = self.CurrentBatchNum + 1
     return self.Batch
 end
 
 
 function DataProvider:GetNextBatch()
-    if self.EndOfData then
+    if self.StopLoading then
         return nil
     end
-    if self.NumBatches >= self.CurrentBatchNum then
+    if self.NumBatches > self.CurrentBatchNum then
         self.CurrentBatchNum = self.CurrentBatchNum + 1
-        if not self:loadBatch() then
+        if not self:LoadBatch() then
             self:CreateBatch()
+            if self.CacheFiles then
+                self:SaveBatch()
+            end
         end
         self.CurrentItemBatch = 1
         return self.Batch
     else
-        self.EndOfData = true
+        self.StopLoading = true
         return nil
     end
 end
 
-function DataProvider:GetNextMiniBatch()
-    if self.EndOfData then
+function DataProvider:GetNextMiniBatch(autoLoadBatch)
+    local autoLoadBatch = autoLoadBatch or false
+    if self.StopLoading then
         return nil
     end
-
-    for i=1,self.NumMiniBatchElements do
-        if self.CurrentItemBatch > self.NumBatchElements then
-            if not self:GetNextBatch() then
-                self.EndOfData = true
-                return self.MiniBatch.Data, self.MiniBatch.Labels
-            end
+    if self.CurrentItemBatch > self.NumBatchElements or self.CurrentBatchNum == 0 then
+        if (not autoLoadBatch) or (not self:GetNextBatch()) then
+            self.StopLoading = true
+            return nil
         end
-        self.MiniBatch.Data[i] = self.Batch.Data[self.CurrentItemBatch]
-        self.MiniBatch.Labels[i] = self.Batch.Labels[self.CurrentItemBatch]
-        self.CurrentItemBatch = self.CurrentItemBatch + 1
     end
-    return self.MiniBatch.Data, self.MiniBatch.Labels
+
+    self.MiniBatch.Data:copy(self.Batch.Data:narrow(1,self.CurrentItemBatch, self.NumMiniBatchElements))
+    self.MiniBatch.Labels:copy(self.Batch.Labels:narrow(1,self.CurrentItemBatch, self.NumMiniBatchElements))
+    self.CurrentItemBatch = self.CurrentItemBatch + self.NumMiniBatchElements
+    self.CurrentItem = self.CurrentItem + self.NumMiniBatchElements
+    --for i=1,self.NumMiniBatchElements do
+    --    --if self.CurrentItemBatch > self.NumBatchElements or self.CurrentBatchNum == 0 then
+    --    --    if (not autoLoadBatch) or (not self:GetNextBatch()) then
+    --    --        self.StopLoading = true
+    --    --        return nil
+    --    --    end
+    --    --end
+    --    self.MiniBatch.Data[i] = self.Batch.Data[self.CurrentItemBatch]
+    --    self.MiniBatch.Labels[i] = self.Batch.Labels[self.CurrentItemBatch]
+    --    self.CurrentItemBatch = self.CurrentItemBatch + 1
+    --    self.CurrentItem = self.CurrentItem + 1
+    --end
+    return self.MiniBatch
 end
 
 

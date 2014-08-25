@@ -1,5 +1,6 @@
 require 'DataProvider'
 require 'utils'
+require 'cutorch'
 --data = DataProvider('/home/ehoffer/Datasets/Cache', {3,256,256})
 --if not data:ItemsLoaded() then
 --data:GenerateFilenames('/home/ehoffer/Datasets/ImageNet/Attributes/',true)
@@ -25,10 +26,16 @@ if not data:ItemsLoaded() then
     data:SaveItemsList()
 end
 B = data:InitBatch(473)
-b = data:InitMiniBatch(128)
+b = data:InitMiniBatch(128,'torch.CudaTensor')
 
 data:AddPrepFunc(PreProcess)
 
 data:GetNextBatch()
-data:GetNextMiniBatch()
+
+local n=1
+while data:GetNextMiniBatch(true) do
+    --print('Batch number', n)
+    print('Current Item', data:CurrentItemCount())
+    n = n +1
+end
 
