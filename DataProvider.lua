@@ -75,6 +75,15 @@ function DataProvider:ShuffleItems()
         n = n - 1
     end
 end
+function DataProvider:ShuffleBatch()
+    local n = self.Batch.Data:size(1)
+    while n > 2 do
+        local k = math.random(n)
+        self.Batch.Data[n], self.Batch.Data[k] = self.Batch.Data[k]:clone(), self.Batch.Data[n]:clone()
+        self.Batch.Labels[n], self.Batch.Labels[k] = self.Batch.Labels[k], self.Batch.Labels[n]
+        n = n - 1
+    end
+end
 
 function DataProvider:GenerateFilenames(path, subfolders)
     local subfolders = subfolders or false
@@ -88,7 +97,7 @@ function DataProvider:GenerateFilenames(path, subfolders)
         path_list = {path}
     end
     for _,p in pairs(path_list) do
-        print('Generating filenames from path' .. p)
+        print('(DataProvider)===>Generating filenames from path' .. p)
         for f in paths.files(p) do
             local filename = paths.concat(p,f)
             if paths.filep(filename) then
@@ -168,10 +177,11 @@ function DataProvider:InitBatchData(data)
     self.Batch.Labels = data.Labels
 end
 
-function DataProvider:ResetCount()
-    self.CurrentBatchNum = 0
+function DataProvider:ResetCount(batch)
+    self.CurrentBatchNum = batch or 0
     self.CurrentItemBatch = 1
     self.CurrentItem = 1
+    self.StopLoading = false
 
 end
 
@@ -210,6 +220,7 @@ function DataProvider:LoadBatch(batchnumber)
     local batchnumber = batchnumber or self.CurrentBatchNum
     local batchfilename = self:BatchFilename(batchnumber)
     if paths.filep(batchfilename) then
+        print('(DataProvider)===>Loading Batch N.' .. batchnumber .. ' From ' .. batchfilename)
         self.Batch = torch.load(batchfilename)
         self.CurrentBatchNum = batchnumber
         return true
@@ -230,6 +241,7 @@ function DataProvider:CreateBatch()
     if #self.Items <  self.NumBatchElements then
         self:InitBatch(#self.Items )
     end
+    print('(DataProvider)===>Creating Batch')
     for i = 1,self.NumBatchElements do
         local Item = table.remove(self.Items,1)
         local PrepFunc = self.Preprocessors[Item.Transformation]
@@ -243,6 +255,10 @@ end
 
 
 function DataProvider:GetNextBatch()
+    if (self.NumBatches == 1) and (self.CurrentBatchNum == 1) then
+        self:ResetCount(1)
+        return true
+    end
     if self.StopLoading then
         return nil
     end
@@ -255,7 +271,7 @@ function DataProvider:GetNextBatch()
             end
         end
         self.CurrentItemBatch = 1
-        return self.Batch
+        return true
     else
         self.StopLoading = true
         return nil
@@ -267,8 +283,11 @@ function DataProvider:GetNextMiniBatch(autoLoadBatch)
     if self.StopLoading then
         return nil
     end
-    if self.CurrentItemBatch > self.NumBatchElements or self.CurrentBatchNum == 0 then
-        if (not autoLoadBatch) or (not self:GetNextBatch()) then
+    if self.CurrentItemBatch + self.NumMiniBatchElements > self.NumBatchElements or self.CurrentBatchNum == 0 then
+        if (not autoLoadBatch) then
+            return nil
+        end
+        if (not self:GetNextBatch()) then
             self.StopLoading = true
             return nil
         end
@@ -278,6 +297,8 @@ function DataProvider:GetNextMiniBatch(autoLoadBatch)
     self.MiniBatch.Labels:copy(self.Batch.Labels:narrow(1,self.CurrentItemBatch, self.NumMiniBatchElements))
     self.CurrentItemBatch = self.CurrentItemBatch + self.NumMiniBatchElements
     self.CurrentItem = self.CurrentItem + self.NumMiniBatchElements
+    --local b = self.MiniBatch.Data
+    --local B = self.Batch.Data
     --for i=1,self.NumMiniBatchElements do
     --    --if self.CurrentItemBatch > self.NumBatchElements or self.CurrentBatchNum == 0 then
     --    --    if (not autoLoadBatch) or (not self:GetNextBatch()) then
@@ -285,12 +306,12 @@ function DataProvider:GetNextMiniBatch(autoLoadBatch)
     --    --        return nil
     --    --    end
     --    --end
-    --    self.MiniBatch.Data[i] = self.Batch.Data[self.CurrentItemBatch]
+    --    b[i] = B[self.CurrentItemBatch]
     --    self.MiniBatch.Labels[i] = self.Batch.Labels[self.CurrentItemBatch]
     --    self.CurrentItemBatch = self.CurrentItemBatch + 1
     --    self.CurrentItem = self.CurrentItem + 1
     --end
-    return self.MiniBatch
+    return true
 end
 
 
