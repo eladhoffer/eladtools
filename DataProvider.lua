@@ -1,5 +1,7 @@
 require 'xlua'
+local ffi = require 'ffi'
 
+local maxStringLength = 60 -- this has to be predetermined
 local DataProvider = torch.class('DataProvider')
 function DataProvider:__init(...)
     xlua.require('image',true)
@@ -13,14 +15,38 @@ end
 
 function DataProvider:__tostring__()
     str = 'DataProvider:\n'
-    if #self.Items > 0 then
-        str = str .. ' + num samples : '.. #self.Items
+    if self.TotalnumItems > 0 then
+        str = str .. ' + num samples : '.. self.TotalnumItems
     else
         str = str .. ' + empty set...'
     end
     return str
 end
-
+--[[numStrings = 10                    -- for example, lets do 10, but this number can be anything upto memory limits
+maxStringLength = 100          -- this has to be predetermined
+ 
+-- allocate CharTensor
+bigStringTensor = torch.CharTensor(numStrings, maxStringLength)
+bst_data=torch.data(bigStringTensor)        -- raw C pointer using torchffi
+ 
+-- load some strings into the stringTensor
+str='hello world'
+ 
+-- write strings to tensor
+for i=1,bigStringTensor:size(1) do
+      local stri = str .. ' ' .. i
+      ffi.copy(bst_data + ((i-1) * maxStringLength), stri)
+end
+ 
+-- read back data gotcha (torchffi seems to always return the parent tensor's data pointer)
+for i=1,bigStringTensor:size(1) do
+      print(ffi.string(torch.data(bigStringTensor[i])))
+end
+ 
+-- read back properly
+for i=1,bigStringTensor:size(1) do
+      print(ffi.string(bst_data + ((i-1) * maxStringLength)))
+      end]]--
 function DataProvider:load(...)
     -- parse args
     local args = dok.unpack(
@@ -28,23 +54,19 @@ function DataProvider:load(...)
     'DataProvider:load',
     'Loads a DataProvider',
     {arg='CachePrefix', type='string', help='path to caches data',default = '.'},
-    {arg='CacheFiles', type='boolean', help='cache data into files', default=false}
+    {arg='CacheFiles', type='boolean', help='cache data into files', default=false},
+    {arg='PreAllocItems', type='number', help='Number of Items', default=-1}
     )
     self.CachePrefix = args.CachePrefix
     self.CacheFiles = args.CacheFiles
-    self.sampleSize = sampleSize
-    self.labelSize = labelSize or {1}
-    self.Preprocessors = {}
-    if #self.labelSize == 1 then
-        self.labelSize = self.labelSize[1]
-    end
     self.itemslistFile = paths.concat(self.CachePrefix, 'ItemsList')
     if paths.filep(self.itemslistFile) then
         self.Items = torch.load(self.itemslistFile)
-        self.TotalnumItems = #self.Items
+        self.TotalnumItems= self.Items.Filenames:size(1)
     else
         os.execute('mkdir -p "' .. paths.dirname(self.itemslistFile) .. '"')
         self.Items = {}
+        self.Items.Filenames = torch.CharTensor(1,maxStringLength)
         self.TotalnumItems = 0
     end
 
@@ -71,17 +93,18 @@ function DataProvider:SaveItemsList()
 end
 
 function DataProvider:ItemsLoaded()
-    return #self.Items > 0
+    return self.TotalnumItems > 0
 end
 
 function DataProvider:ShuffleItems()
-    local n = #self.Items
+    local n = self.TotalnumItems
     while n > 2 do
         local k = math.random(n)
         self.Items[n], self.Items[k] = self.Items[k], self.Items[n]
         n = n - 1
     end
 end
+
 function DataProvider:ShuffleBatch()
     local n = self.Batch.Data:size(1)
     while n > 2 do
@@ -91,6 +114,25 @@ function DataProvider:ShuffleBatch()
         n = n - 1
     end
 end
+
+function DataProvider:InsertItem(filename)
+    if self.Items.Filenames:size(1) > self.TotalnumItems then
+        self.TotalnumItems = self.TotalnumItems + 1
+        local Filenames = self.Items.Filenames
+        local data=torch.data(Filenames)        -- raw C pointer using torchffi
+        ffi.copy(data + ((self.TotalnumItems-1) * maxStringLength), filename)
+    end
+end
+
+function DataProvider:GetItem(location)
+    if self.Items.Filenames:size(1) < location then
+        return nil
+    end
+    local Filenames = self.Items.Filenames
+    local data=torch.data(Filenames)        -- raw C pointer using torchffi
+    return ffi.string(data + ((location-1) * maxStringLength))
+end
+
 
 function DataProvider:GenerateFilenames(path, subfolders)
     local subfolders = subfolders or false
@@ -104,35 +146,41 @@ function DataProvider:GenerateFilenames(path, subfolders)
         path_list = {path}
     end
     for _,p in pairs(path_list) do
+        
+        local currSize = self.Items.Filenames:size()
+        local numNewItems = tonumber(sys.execute('ls ' .. p .. '| wc -l')) -1
+        if currSize[1] - self.TotalnumItems < numNewItems then
+            currSize[1] = currSize[1] + numNewItems
+            self.Items.Filenames:resize(currSize)
+        end
         print('(DataProvider)===>Generating filenames from path' .. p)
         for f in paths.files(p) do
             local filename = paths.concat(p,f)
             if paths.filep(filename) then
-                table.insert(self.Items, {Filename = filename, Label = {}, Transformation = 1})
-                self.TotalnumItems = self.TotalnumItems + 1
+                self:InsertItem(filename)
             end
         end
     end
 
 end
-
-function DataProvider:PushItems(items)
-    local n=#items
-    for i=1,n do
-        table.insert(self.Items, table.remove(items,1))
-        self.TotalnumItems = self.TotalnumItems + 1
-    end
-end
-
-function DataProvider:PopItems(num)
-    local removedItems = {}
-    local n = #self.Items
-    for i=1,math.min(num,n) do
-        table.insert(removedItems, table.remove(self.Items,1))
-        self.TotalnumItems = self.TotalnumItems - 1
-    end
-    return removedItems
-end
+--
+--function DataProvider:PushItems(items)
+--    local n=items:
+--    for i=1,n do
+--        table.insert(self.Items, table.remove(items,1))
+--        self.TotalnumItems = self.TotalnumItems + 1
+--    end
+--end
+--
+--function DataProvider:PopItems(num)
+--    local removedItems = {}
+--    local n = self.TotalnumItems
+--    for i=1,math.min(num,n) do
+--        table.insert(removedItems, table.remove(self.Items,1))
+--        self.TotalnumItems = self.TotalnumItems - 1
+--    end
+--    return removedItems
+--end
 
 function DataProvider:AddFilenames(fs, searchpaths)
     local path = searchpaths or {'.'}
@@ -142,29 +190,32 @@ function DataProvider:AddFilenames(fs, searchpaths)
             self:AddFilenames(fs,p)
         end
     else
+        local currSize = self.Filenames:size()
+        local numNewItems = tonumber(sys.execute('ls ' .. fs .. '| wc -l')) -2
+        print(numNewItems)
+        if curSize[1] - self.TotalnumItems < numNewItems then
+            currSize[1] = currSize[1] + numNewItems
+            self.Items.Filenames:resize(currSize)
+        end
         for _,f in pairs(fs) do
             local filename = paths.concat(path,f)
             if paths.filep(filename) then
-                table.insert(self.Items, {Filename = filename, Label = {}, Transformation = 1})
-                self.TotalnumItems = self.TotalnumItems + 1
+                self:InsertItem(filename)
             end
         end
     end
 end
 
 function DataProvider:LabelItems(LabelFunc)
-    for _,item in pairs(self.Items) do
-        item.Label = LabelFunc(item)
-    end
-end
+    local FirstLabel = LabelFunc(self:GetItem(1))
+    if torch.type(FirstLabel) == 'number' then
+        self.Items.Labels = torch.Tensor(self.TotalnumItems)
+        -- else
+        --   local
 
-function DataProvider:AddPrepFunc(prep)
-    table.insert(self.Preprocessors, prep)
-    if #self.Preprocessors > 1 then
-        local numItems = #self.Items
-        for i=1, numItems do
-            table.insert(self.Items, {Filename = self.Items[i].Filename, Label = self.Items[i].Label, Transformation = #self.Preprocessors})
-        end
+    end
+    for i=1,self.TotalnumItems do
+        self.Items.Labels[i] = LabelFunc(self:GetItem(i))
     end
 end
 
@@ -259,12 +310,12 @@ function DataProvider:SaveBatch()
 end
 
 function DataProvider:CreateBatch()
-    if #self.Items == 0 then
+    if self.TotalnumItems == 0 then
         return nil
     end
-    if #self.Items <  self.Batch.Data:size(1) then
-        self.Batch.Data = self.Batch.Data:narrow(1,1,#self.Items)
-        self.Batch.Labels = self.Batch.Labels:narrow(1,1,#self.Items)
+    if self.TotalnumItems <  self.Batch.Data:size(1) then
+        self.Batch.Data = self.Batch.Data:narrow(1,1,self.TotalnumItems)
+        self.Batch.Labels = self.Batch.Labels:narrow(1,1,self.TotalnumItems)
     else 
         if self.Batch.Data:size(1) < self.Batch.MaxNumElements then
             local BatchDataSize = self.Batch.Data:size()
@@ -277,11 +328,10 @@ function DataProvider:CreateBatch()
     end
    print('(DataProvider)===>Creating Batch')
     for i = 1,self.Batch.Data:size(1) do
-        local Item = table.remove(self.Items,1)
-        local PrepFunc = self.Preprocessors[Item.Transformation]
-        local Sample = self.FileLoader(Item.Filename)
+        local PrepFunc = self.Batch.ExtractFunction
+        local Sample = self.FileLoader(self:GetItem(i))
         self.Batch.Data[i] = PrepFunc(Sample)
-        self.Batch.Labels[i] = Item.Label
+        self.Batch.Labels[i] = self.Items.Labels[i]
         xlua.progress(i, self.Batch.Data:size(1))
     end
     return self.Batch

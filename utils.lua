@@ -6,7 +6,7 @@ function PadTensor(im , SizeY, SizeX, pad, dy_middle, dx_middle)
     local pad = pad or 0
     if im:dim()>2 then
         local padded = torch.zeros(im:size(1), SizeY,SizeX):fill(pad):typeAs(im)
-        for i=1, im:dim() do
+        for i=1, im:size(1) do
             padded[i]:copy(PadTensor(im[i], SizeY, SizeX, pad, dy_middle, dx_middle))
         end
         return padded
