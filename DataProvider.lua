@@ -1,80 +1,89 @@
-require 'xlua'
 local ffi = require 'ffi'
+local lmdb = require 'lmdb'
 
-local maxStringLength = 60 -- this has to be predetermined
 local DataProvider = torch.class('DataProvider')
-function DataProvider:__init(...)
-    xlua.require('image',true)
-    xlua.require('torch',true)
-    self:load(...)
+
+local function CatNumSize(num,size)
+    local stg = torch.LongStorage(size:size()+1)
+    stg[1] = num
+    for i=2,stg:size() do
+        stg[i]=size[i-1]
+    end
+    return stg
 end
+function DataProvider:__init(...)
+    xlua.require('torch',true)
+
+    local args = dok.unpack(
+    {...},
+    'InitializeData',
+    'Initializes a DataProvider ',
+    {arg='MaxNumItems', type='number', help='Number of Elements in each Batch',req = true},
+    {arg='Name', type='string', help='Name of DataProvider',req = true},
+    {arg='TensorType', type='string', help='Type of Tensor', default = 'torch.FloatTensor'},
+    {arg='ExtractFunction', type='function', help='function used to extract Data, Label and Info', default= function(...) return ... end},
+    {arg='Source', type='table', help='source of DataProvider', req=true},
+    {arg='CachePrefix', type='string', help='path to caches data',default = '.'},
+    {arg='CacheFiles', type='boolean', help='cache data into files', default=false},
+    {arg='AutoLoad', type='boolean', help='load next data automaticaly', default=false},
+    --{arg='DataContainer', type='boolean', help='true if size of Data == size of Items', default = true},
+    {arg='CopyData', type='boolean', help='Copies data instead of referencing it ', default = true}
+  
+    )
+
+    self.Name = args.Name
+    self.MaxNumItems = args.MaxNumItems
+    self.TensorType = args.TensorType
+    self.ExtractFunction = args.ExtractFunction
+    self.Source = args.Source
+    self.CachePrefix = args.CachePrefix
+    self.CacheFiles = args.CacheFiles
+    --self.DataContainer = args.DataContainer
+    self.AutoLoad = args.AutoLoad
+    self.CopyData = args.CopyData
+
+    if self.CacheFiles then
+        os.execute('mkdir -p "' .. paths.dirname(self:BatchFilename(1)) .. '"')
+    end
+    
+  
+self.CurrentBatch = 0
+    self.NumBatch = 0
+  
+    self.Data = torch.Tensor():type(self.TensorType)
+    self.Labels = torch.Tensor():type(self.TensorType)
+  self:Reset()
+end
+
 
 function DataProvider:size()
-    return self.TotalnumItems
+--if self.Items:dim() > 1 then
+--    return self.Items:size(1)
+--else return self.Items:size()[1]
+--end
+if self.Data:dim() == 0 then
+    return 0
+end
+return self.Data:size(1)
 end
 
+function DataProvider:Reset()
+      self.CurrentItemSource = 1
+end
+    
+
 function DataProvider:__tostring__()
-    str = 'DataProvider:\n'
-    if self.TotalnumItems > 0 then
-        str = str .. ' + num samples : '.. self.TotalnumItems
+    local str = 'DataProvider:\n'
+    if self:size() > 0 then
+        str = str .. ' + num samples : '.. self:size()
     else
         str = str .. ' + empty set...'
     end
     return str
 end
---[[numStrings = 10                    -- for example, lets do 10, but this number can be anything upto memory limits
-maxStringLength = 100          -- this has to be predetermined
- 
--- allocate CharTensor
-bigStringTensor = torch.CharTensor(numStrings, maxStringLength)
-bst_data=torch.data(bigStringTensor)        -- raw C pointer using torchffi
- 
--- load some strings into the stringTensor
-str='hello world'
- 
--- write strings to tensor
-for i=1,bigStringTensor:size(1) do
-      local stri = str .. ' ' .. i
-      ffi.copy(bst_data + ((i-1) * maxStringLength), stri)
-end
- 
--- read back data gotcha (torchffi seems to always return the parent tensor's data pointer)
-for i=1,bigStringTensor:size(1) do
-      print(ffi.string(torch.data(bigStringTensor[i])))
-end
- 
--- read back properly
-for i=1,bigStringTensor:size(1) do
-      print(ffi.string(bst_data + ((i-1) * maxStringLength)))
-      end]]--
-function DataProvider:load(...)
-    -- parse args
-    local args = dok.unpack(
-    {...},
-    'DataProvider:load',
-    'Loads a DataProvider',
-    {arg='CachePrefix', type='string', help='path to caches data',default = '.'},
-    {arg='CacheFiles', type='boolean', help='cache data into files', default=false},
-    {arg='PreAllocItems', type='number', help='Number of Items', default=-1}
-    )
-    self.CachePrefix = args.CachePrefix
-    self.CacheFiles = args.CacheFiles
-    self.itemslistFile = paths.concat(self.CachePrefix, 'ItemsList')
-    if paths.filep(self.itemslistFile) then
-        self.Items = torch.load(self.itemslistFile)
-        self.TotalnumItems= self.Items.Filenames:size(1)
-    else
-        os.execute('mkdir -p "' .. paths.dirname(self.itemslistFile) .. '"')
-        self.Items = {}
-        self.Items.Filenames = torch.CharTensor(1,maxStringLength)
-        self.TotalnumItems = 0
-    end
 
-    self.CurrentItem = 1
-    self.FileLoader = image.loadJPG
-end
-function subdirs(path, listDirs )
-    local listDirs = listDirs or {paths.concat('.',path)}
+local function subdirs(path, listDirs )
+    local listDirs = listDirs or {} --{paths.concat('.',path)}
     for f in paths.files(path) do
         local filename = paths.concat(path,f)
         if paths.dirp(filename) and (f~='..') and (f~='.') then
@@ -84,221 +93,61 @@ function subdirs(path, listDirs )
     return listDirs
 end
 
+
 function DataProvider:BatchFilename(num) 
-    return paths.concat(self.CachePrefix,'Batch' .. num) 
+    return paths.concat(self.CachePrefix,self.Name .. '_Batch' .. num) 
 end
 
-function DataProvider:SaveItemsList()
-    torch.save(self.itemslistFile, self.Items)
-end
-
-function DataProvider:ItemsLoaded()
-    return self.TotalnumItems > 0
-end
 
 function DataProvider:ShuffleItems()
-    local n = self.TotalnumItems
-    while n > 2 do
-        local k = math.random(n)
-        self.Items[n], self.Items[k] = self.Items[k], self.Items[n]
-        n = n - 1
+    local RandOrder = torch.randperm(self.Data:size(1)):long()
+    self.Data = self.Data:index(1,RandOrder)
+    if self.Labels:dim() > 0 then
+        self.Labels = self.Labels:index(1,RandOrder)
     end
-end
+    --print('(DataProvider)===>Shuffling Items')
 
-function DataProvider:ShuffleBatch()
-    local n = self.Batch.Data:size(1)
-    while n > 2 do
-        local k = math.random(n)
-        self.Batch.Data[n], self.Batch.Data[k] = self.Batch.Data[k]:clone(), self.Batch.Data[n]:clone()
-        self.Batch.Labels[n], self.Batch.Labels[k] = self.Batch.Labels[k], self.Batch.Labels[n]
-        n = n - 1
-    end
-end
-
-function DataProvider:InsertItem(filename)
-    if self.Items.Filenames:size(1) > self.TotalnumItems then
-        self.TotalnumItems = self.TotalnumItems + 1
-        local Filenames = self.Items.Filenames
-        local data=torch.data(Filenames)        -- raw C pointer using torchffi
-        ffi.copy(data + ((self.TotalnumItems-1) * maxStringLength), filename)
-    end
-end
-
-function DataProvider:GetItem(location)
-    if self.Items.Filenames:size(1) < location then
-        return nil
-    end
-    local Filenames = self.Items.Filenames
-    local data=torch.data(Filenames)        -- raw C pointer using torchffi
-    return ffi.string(data + ((location-1) * maxStringLength))
 end
 
 
-function DataProvider:GenerateFilenames(path, subfolders)
-    local subfolders = subfolders or false
-    if subfolders then
-        path = subdirs(path)
-    end
-    local path_list
-    if type(path)=='table' then
-        path_list = path
-    else
-        path_list = {path}
-    end
-    for _,p in pairs(path_list) do
-        
-        local currSize = self.Items.Filenames:size()
-        local numNewItems = tonumber(sys.execute('ls ' .. p .. '| wc -l')) -1
-        if currSize[1] - self.TotalnumItems < numNewItems then
-            currSize[1] = currSize[1] + numNewItems
-            self.Items.Filenames:resize(currSize)
-        end
-        print('(DataProvider)===>Generating filenames from path' .. p)
-        for f in paths.files(p) do
-            local filename = paths.concat(p,f)
-            if paths.filep(filename) then
-                self:InsertItem(filename)
-            end
-        end
-    end
 
-end
---
---function DataProvider:PushItems(items)
---    local n=items:
---    for i=1,n do
---        table.insert(self.Items, table.remove(items,1))
---        self.TotalnumItems = self.TotalnumItems + 1
---    end
---end
---
---function DataProvider:PopItems(num)
---    local removedItems = {}
---    local n = self.TotalnumItems
---    for i=1,math.min(num,n) do
---        table.insert(removedItems, table.remove(self.Items,1))
---        self.TotalnumItems = self.TotalnumItems - 1
---    end
---    return removedItems
---end
+function DataProvider:GetItems(location,num)
+    --Assumes location and num are valid
+    local num = num or 1
+    local data
+    local labels
+    --if self.DataContainer then
+        data = self.Data:narrow(1,location,num)
+        labels = self.Labels:narrow(1,location,num) 
+    --else
+    --    local sizeData = self.Data:size()
+    --    sizeData[1] = num
+    --    local sizeLabels = self.Labels:size()
+    --    sizeLabels[1] = num
+    --    data = torch.Tensor(sizeData):typeAs(self.Data) 
+    --    labels = torch.Tensor(sizeLabels):typeAs(self.Labels) 
+    --    for i=1,num do
+    --        data[i] = self.Data[self.Items[location+i-1]]
+    --        labels[i] = self.Labels[self.Items[location+i-1]]
+    --    end
 
-function DataProvider:AddFilenames(fs, searchpaths)
-    local path = searchpaths or {'.'}
-
-    if type(path) =='table' then
-        for _,p in pairs(path) do
-            self:AddFilenames(fs,p)
-        end
-    else
-        local currSize = self.Filenames:size()
-        local numNewItems = tonumber(sys.execute('ls ' .. fs .. '| wc -l')) -2
-        print(numNewItems)
-        if curSize[1] - self.TotalnumItems < numNewItems then
-            currSize[1] = currSize[1] + numNewItems
-            self.Items.Filenames:resize(currSize)
-        end
-        for _,f in pairs(fs) do
-            local filename = paths.concat(path,f)
-            if paths.filep(filename) then
-                self:InsertItem(filename)
-            end
-        end
-    end
-end
-
-function DataProvider:LabelItems(LabelFunc)
-    local FirstLabel = LabelFunc(self:GetItem(1))
-    if torch.type(FirstLabel) == 'number' then
-        self.Items.Labels = torch.Tensor(self.TotalnumItems)
-        -- else
-        --   local
-
-    end
-    for i=1,self.TotalnumItems do
-        self.Items.Labels[i] = LabelFunc(self:GetItem(i))
-    end
-end
-
-local function InitializeData(...)
-local args = dok.unpack(
-    {...},
-    'InitializeData',
-    'Initializes a DataProvider Batch or MiniBatch',
-    {arg='NumElements', type='number', help='Number of Elements in each Batch',req = true},
-    {arg='SampleSize', type='table', help='Size of each sample in Batch', req=true},
-    {arg='LabelSize', type='table', help='Size of each label in Batch', default = {1}},
-    {arg='TensorType', type='string', help='Type of Tensor', default = nil},
-    {arg='ExtractFunction', type='Function', help='function used to extract Data and label', default=nil}
-    )
-
-    local numElements = args.NumElements
-    local BatchSize = {numElements}
-    local BatchLabelsSize = {numElements}
-    for _,k in pairs(args.SampleSize) do
-        table.insert(BatchSize,k)
-    end
-    if #args.LabelSize >1 then
-        for k=1,#args.LabelSize do
-            table.insert(BatchLabelsSize,args.LabelSize[k])
-        end
-    else 
-        if args.LabelSize[1] > 1 then
-            table.insert(BatchLabelsSize,args.LabelSize[1])
-        end
-    end
-    Batch = {}
-    Batch.Data = torch.Tensor(torch.LongStorage(BatchSize))
-    Batch.Labels = torch.Tensor(torch.LongStorage(BatchLabelsSize))
-    Batch.MaxNumElements = numElements
-    Batch.ExtractFunction = args.ExtractFunction
-    if args.TensorType then
-        Batch.Data = Batch.Data:type(args.TensorType)
-        Batch.Labels = Batch.Labels:type(args.TensorType)
-    end
-    return Batch
-end
-
-
-function DataProvider:InitBatch(...)
-    self.Batch = InitializeData(...)
-    self.CurrentBatchNum = 0
-    self.NumBatches = math.ceil(self.TotalnumItems/self.Batch.Data:size(1))
-    return self.Batch
-end
-
-function DataProvider:InitBatchData(data)
-    self.Batch.Data = data.Labels
-    self.Batch.Labels = data.Labels
-end
-
-function DataProvider:ResetCount(batch)
-    self.CurrentBatchNum = batch or 0
-    self.CurrentItemBatch = 1
-    self.CurrentItem = 1
-    self.StopLoading = false
-
-end
+    --end
+    return data, labels
+ end
 
 function DataProvider:CurrentItemCount()
-    return self.CurrentItem
-end
-
-function DataProvider:InitMiniBatch(...)
-    self.MiniBatch = InitializeData(...)
-    self.CurrentItemBatch = 1
-    return self.MiniBatch
+    return self.CurrentItemSource
 end
 
 function DataProvider:LoadBatch(batchnumber)
-    local batchnumber = batchnumber or self.CurrentBatchNum
+    local batchnumber = batchnumber or self.NumBatch
     local batchfilename = self:BatchFilename(batchnumber)
     if paths.filep(batchfilename) then
         print('(DataProvider)===>Loading Batch N.' .. batchnumber .. ' From ' .. batchfilename)
-        local TensorType = self.Batch.Data:type()
-        self.Batch = torch.load(batchfilename)
-        self.Batch.Data = self.Batch.Data:type(TensorType)
-        self.Batch.Labels = self.Batch.Labels:type(TensorType)
-        self.CurrentBatchNum = batchnumber
+        local Batch = torch.load(batchfilename)
+        self.Data = Batch.Data:type(self.TensorType)
+        self.Labels = Batch.Labels:type(self.TensorType)
+        self.NumBatch = batchnumber
         return true
     else
         return false
@@ -306,98 +155,170 @@ function DataProvider:LoadBatch(batchnumber)
 end
 
 function DataProvider:SaveBatch()
-    torch.save(self:BatchFilename(self.CurrentBatchNum), self.Batch)
+print('(DataProvider)===>Saving Batch')
+    torch.save(self:BatchFilename(self.NumBatch), {Data = self.Data, Labels = self.Labels})
 end
 
 function DataProvider:CreateBatch()
-    if self.TotalnumItems == 0 then
-        return nil
-    end
-    if self.TotalnumItems <  self.Batch.Data:size(1) then
-        self.Batch.Data = self.Batch.Data:narrow(1,1,self.TotalnumItems)
-        self.Batch.Labels = self.Batch.Labels:narrow(1,1,self.TotalnumItems)
-    else 
-        if self.Batch.Data:size(1) < self.Batch.MaxNumElements then
-            local BatchDataSize = self.Batch.Data:size()
-            local BatchLabelSize= self.Batch.Label:size()
-            BatchDataSize[1] = self.Batch.NumMaxElements
-            BatchLabelSize[1] = self.Batch.NumMaxElements
-            self.Batch.Data:resize(BatchDataSize)
-            self.Batch.Labels:resize(BatchLabelSize)
+
+    if self.CurrentItemSource > self.Source:size() then
+        if not self.AutoLoad then
+            return nil
+        end
+
+        if not self.Source:GetNextBatch() then
+            return nil
+        else
+            self.CurrentItemSource = 1
         end
     end
-   print('(DataProvider)===>Creating Batch')
-    for i = 1,self.Batch.Data:size(1) do
-        local PrepFunc = self.Batch.ExtractFunction
-        local Sample = self.FileLoader(self:GetItem(i))
-        self.Batch.Data[i] = PrepFunc(Sample)
-        self.Batch.Labels[i] = self.Items.Labels[i]
-        xlua.progress(i, self.Batch.Data:size(1))
-    end
-    return self.Batch
-end
 
+    --print('(DataProvider)===>Creating Batch')
+    local NumInBatch = math.min(self.Source:size() - self.CurrentItemSource + 1, self.MaxNumItems)
+    local source_data, source_labels = self.Source:GetItems(self.CurrentItemSource, NumInBatch)
+    local data, labels = self.ExtractFunction(source_data,source_labels)
+    if self.CopyData then
+        self.Data:resize(data:size())
+        self.Data:copy(data)
+        self.Labels:resize(labels:size())
+        self.Labels:copy(labels)
+    else
+        self.Data = data
+        self.Labels = labels
+    end
+    self.CurrentItemSource = self.CurrentItemSource + NumInBatch
+    return true
+
+end
 
 function DataProvider:GetNextBatch()
-    if (self.NumBatches == 1) and (self.CurrentBatchNum == 1) then
-        self:ResetCount(1)
+    self.NumBatch = self.NumBatch + 1
+    if self:LoadBatch() then
         return true
-    end
-    if self.StopLoading then
+    elseif self:CreateBatch() then
+        if self.CacheFiles then
+            self:SaveBatch()
+        end
+        return true
+    else
         return nil
     end
-    if self.NumBatches > self.CurrentBatchNum then
-        self.CurrentBatchNum = self.CurrentBatchNum + 1
-        if not self:LoadBatch() then
-            self:CreateBatch()
-            if self.CacheFiles then
-                self:SaveBatch()
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+--------------------------File Searcher-------------------------------
+
+function String2Tensor(string, lengthTensor)
+    local x = torch.CharTensor(lengthTensor)
+    local data=torch.data(x)        -- raw C pointer using torchffi
+    ffi.copy(data, string)
+return x
+end
+
+local FileSearcher, parent = torch.class('FileSearcher', 'DataProvider')
+function FileSearcher:__init(...)
+    local args = dok.unpack(
+    {...},
+    'InitializeData',
+    'Initializes a DataProvider ',
+    {arg='MaxNumItems', type='number', help='Number of Elements in each Batch', default = 1e8},
+    {arg='Name', type='string', help='Name of DataProvider',req = true},
+    {arg='ExtractFunction', type='function', help='function used to extract Data, Label and Info', default= function(...) return ... end},
+    {arg='CachePrefix', type='string', help='path to caches data',default = '.'},
+    {arg='CacheFiles', type='boolean', help='cache data into files', default=false},
+    {arg='SubFolders', type='boolean', help='Recursive check for folders', default=false},
+    {arg='PathList', type='table', help='Table of paths to search for files in', req = true},
+    {arg='MaxFilenameLength', type='number', help='Maximum length of filename', default = 100}
+
+    )
+
+
+    self.maxStringLength = args.MaxFilenameLength
+    parent:__init{
+        MaxNumItems = args.MaxNumItems,
+        Name = args.Name,
+        TensorType = 'torch.CharTensor',
+        CacheFiles = args.CacheFiles,
+        CachePrefix = args.CachePrefix,
+        Source = {}
+    }
+    self.NumBatch = 1
+    if not self:LoadBatch() then
+        
+
+        local path = args.PathList
+        local subfolders = args.SubFolders
+        if subfolders then
+            path = subdirs(path[1])
+        end
+
+        for i,p in pairs(path) do
+            local num
+ 	    local numNewItems = tonumber(sys.execute('ls ' .. p .. '| wc -l')) -1
+	    if i==1 then
+           	self.Data = torch.CharTensor(numNewItems,self.maxStringLength)
+		num = 1
+	    else
+		
+            local currSize = self.Data:size()
+                num = currSize[1] + 1
+                currSize[1] = currSize[1] + numNewItems 
+                self.Data:resize(currSize)
+            end
+            print('(DataProvider)===>Generating filenames from path' .. p)
+            for f in paths.files(p) do
+                local filename = paths.concat(p,f)
+                if paths.filep(filename) then
+		    if num <= self.Data:size(1) then
+                    	self.Data[num] = String2Tensor(filename,self.maxStringLength)
+                    	num = num+1
+		    end
+                end
             end
         end
-        self.CurrentItemBatch = 1
-        if self.NumBatches == self.CurrentBatchNum then
-            self.StopLoading = true
-        end
-        return true
-    else
-        self.StopLoading = true
-        return nil
+
+      
+        if self.CacheFiles then
+           self:SaveBatch()
+       end
     end
-end
+  --self:ShuffleItems()
 
-function DataProvider:EndOfData()
-    return self.StopLoading
-end
-
-function DataProvider:GetNextMiniBatch(autoLoadBatch)
-    local autoLoadBatch = autoLoadBatch or false
-    if self.CurrentItemBatch + self.MiniBatch.Data:size(1) > self.Batch.Data:size(1) or self.CurrentBatchNum == 0 then
-        if (not autoLoadBatch) then
-            return nil
-        end
-        if (not self:GetNextBatch()) then
-            return nil
-        end
-    end
-    local Data,Labels
-    if self.MiniBatch.ExtractFunction then
-        Data, Labels = self.MiniBatch.ExtractFunction(self.Batch.Data:narrow(1,self.CurrentItemBatch, self.MiniBatch.Data:size(1)), 
-        self.Batch.Labels:narrow(1,self.CurrentItemBatch, self.MiniBatch.Data:size(1)))
-    else
-        Data = self.Batch.Data:narrow(1,self.CurrentItemBatch, self.MiniBatch.Data:size(1))
-        Labels = self.Batch.Labels:narrow(1,self.CurrentItemBatch, self.MiniBatch.Data:size(1))
-    end
-
-    --if self.MiniBatch.Data:type() == Data:type() then
-    --    self.MiniBatch = Data
-    self.MiniBatch.Data:copy(Data)
-    self.MiniBatch.Labels:copy(Labels)
-
-    self.CurrentItemBatch = self.CurrentItemBatch + self.MiniBatch.Data:size(1)
-    self.CurrentItem = self.CurrentItem + self.MiniBatch.Data:size(1)
-
-    return true
 end
 
 
+function FileSearcher:GetItems(location, num)
+    return self.Data:narrow(1,location,num)
+--    local num = num or 1
+--    local Filenames = torch.CharTensor(math.min(num,self:size(), self.Items:size(1)), self.Data:size(2))
+--    for i=1,num do
+--        Filenames[i] = self.Data[self.Items[i]]
+--    end
+--    return Filenames
+end
+
+
+function FileSearcher:GetNextBatch()
+    return nil
+end
+
+-------------------------LMDB-----------------------------------
+--local LMDB, parent = torch.class('LMDB', 'DataProvider')
+--function LMDB:__init(...)
+--  
+--    parent:__init(...)
+--self.env = lmdb.environment(self.CachePrefix .. self.Name,{subdir = false, max_dbs = 2})
+--self.DataDB = env:db_open('Data')
+--self.LabelsDB = env:db_open('Labels')
 
