@@ -3,7 +3,7 @@ local RecurrentLayer, parent = torch.class('nn.RecurrentLayer', 'nn.Module')
 
 function RecurrentLayer:__init(layers, iterations)
     self.modules = {}
-    self.iterations = iterations
+    self.iterations = iterations or 1
     self.layers = #layers
     self.saved_outputs = {}
 

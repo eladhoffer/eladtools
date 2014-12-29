@@ -8,7 +8,6 @@
 #include <thrust/functional.h>
 #include <thrust/device_ptr.h>
 
-#include "SpatialLogSoftMax.cu"
 
 LUA_EXTERNC DLL_EXPORT int luaopen_libeladtools(lua_State *L);
 
@@ -17,7 +16,6 @@ int luaopen_libeladtools(lua_State *L)
   lua_newtable(L);
 
 
-  cunn_SpatialLogSoftMax_init(L);
 
   return 1;
 }

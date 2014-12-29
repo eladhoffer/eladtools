@@ -13,20 +13,19 @@ function EarlyStop:__init(AllowedBadIters, MaximumIterations, Model, path)
     self.BadStreak = 0
     self.Stopped = false
     self.Model = Model
-    self.path = path
+if path then
+    self.filename = paths.concat(path, 'BestNetEarlyStop' )
+end
 end
 
 function EarlyStop:SaveNet()
-    local filename
-    filename = paths.concat(self.path, 'BestNetEarlyStop' )
-    torch.save(filename,self.Model)
+    torch.save(self.filename,self.Model)
 end
 
 function EarlyStop:Update(Success)
     self.Iter = self.Iter + 1
         
     local CurrentError = 100 - Success
-
     if (CurrentError < self.LowestError) then
         self.BadStreak = 0
         self.LowestError = CurrentError
@@ -52,6 +51,9 @@ function EarlyStop:Update(Success)
 
 
     return self.Stopped
+end
+function EarlyStop:ResetCount()
+	self.BadStreak = 0
 end
 
 function EarlyStop:Stop()
