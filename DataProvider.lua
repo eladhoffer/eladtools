@@ -51,8 +51,14 @@ function DataProvider:__init(...)
     self.Data = torch.Tensor():type(self.TensorType)
     self.Labels = torch.Tensor():type(self.TensorType)
     self:Reset()
+    if torch.type(self.Source) =='table' then
+        self:LoadFrom(self.Source[1], self.Source[2])
+    end
 end
-
+function DataProvider:LoadFrom(data,labels)
+    self.Data = data
+    self.Labels = labels
+end
 
 function DataProvider:size()
     if self.Data:dim() == 0 then
@@ -78,17 +84,6 @@ function DataProvider:__tostring__()
         str = str .. ' + empty set...'
     end
     return str
-end
-
-local function subdirs(path, listDirs )
-    local listDirs = listDirs or {} --{paths.concat('.',path)}
-    for f in paths.files(path) do
-        local filename = paths.concat(path,f)
-        if paths.dirp(filename) and (f~='..') and (f~='.') then
-            table.insert(listDirs,filename)
-        end
-    end
-    return listDirs
 end
 
 
@@ -192,6 +187,31 @@ function DataProvider:GetNextBatch()
 end
 
 
+function DataProvider:Apply(f_data,f_labels)
+    local function apply_data(func, data)
+        if func == nil then
+            return data
+        end
+        local new_data = func(data[1])
+        if (torch.type(new_data) == 'number' or torch.type(data) == 'number') or (new_data:nElement()==data[1]:nElement()) then --inplace
+            new_data = data
+        else
+            if torch.type(new_data) == 'number' then
+                new_data:resize(data:size(1))
+            else
+                new_data:resize(CatNumSize(data:size(1),new_data:size()))
+            end
+        end
+        for i=1,data:size(1) do
+            new_data[i]:copy(func(data[i]))
+        end
+        return new_data
+    end
+
+    self.Data = apply_data(f_data, self.Data)
+    self.Labels = apply_data(f_labels, self.Labels)
+
+end
 
 
 
@@ -211,6 +231,18 @@ function String2Tensor(string, lengthTensor)
     ffi.copy(data, string)
     return x
 end
+
+local function subdirs(path, listDirs )
+    local listDirs = listDirs or {} --{paths.concat('.',path)}
+    for f in paths.files(path) do
+        local filename = paths.concat(path,f)
+        if paths.dirp(filename) and (f~='..') and (f~='.') then
+            table.insert(listDirs,filename)
+        end
+    end
+    return listDirs
+end
+
 
 local FileSearcher, parent = torch.class('FileSearcher', 'DataProvider')
 function FileSearcher:__init(...)
@@ -262,7 +294,7 @@ function FileSearcher:__init(...)
 
         for i,p in pairs(path) do
             local num
-            local numNewItems = tonumber(sys.execute('ls ' .. p .. '| wc -l')) -1
+            local numNewItems = tonumber(sys.execute('ls ' .. p .. '| wc -l')) 
             if i==1 then
                 self.Data = torch.CharTensor(numNewItems,self.maxStringLength)
                 num = 1
@@ -311,12 +343,4 @@ function FileSearcher:GetNextBatch()
     return nil
 end
 
--------------------------LMDB-----------------------------------
---local LMDB, parent = torch.class('LMDB', 'DataProvider')
---function LMDB:__init(...)
---  
---    parent:__init(...)
---self.env = lmdb.environment(self.CachePrefix .. self.Name,{subdir = false, max_dbs = 2})
---self.DataDB = env:db_open('Data')
---self.LabelsDB = env:db_open('Labels')
 
