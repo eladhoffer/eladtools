@@ -30,13 +30,12 @@ function Optimizer:__init(...)
 end
 
 function Optimizer:optimize(x,yt)
-    local value
+    local y, err, value
     local f_eval = function()
         self.Gradients:zero()
-        local y = self.Model:forward(x)
-        local err = self.Loss:forward(y,yt)
+        y = self.Model:forward(x)
+        err = self.Loss:forward(y,yt)
         local dE_dy = self.Loss:backward(y,yt)
-              value = y
         self.Model:backward(x, dE_dy)
         if self.HookFunction then
             value = self.HookFunction(y,yt,err)
@@ -49,9 +48,26 @@ function Optimizer:optimize(x,yt)
         return err, self.Gradients
     end
     local opt_value = self.OptFunction(f_eval, self.Weights, self.OptState)
-    return value, opt_value
+    return y, err,value, opt_value
 end
 
+--function Optimizer:optimStates(opts)--opts must be of for {{weight = optimState, bias = optimState} .... }
+--    for i, optimState in ipairs(opts) do
+--local weight_size = self.Weights:size(1)
+--local learningRates = torch.Tensor(weight_size):fill(self.OptState.learningRate)
+--local weightDecays = torch.Tensor(weight_size):fill(self.OptState.weightDecay)
+--local counter = 0
+--for i, layer in ipairs(model.modules) do
+--      local weight_size = layer.weight:size(1)*layer.weight:size(2)
+--      learningRates[{{counter+1, counter+weight_size}}]:fill(1)
+--      weightDecays[{{counter+1, counter+weight_size}}]:fill(wds)
+--      counter = counter+weight_size
+--      local bias_size = layer.bias:size(1)
+--      learningRates[{{counter+1, counter+bias_size}}]:fill(2)
+--      weightDecays[{{counter+1, counter+bias_size}}]:fill(0)
+--      counter = counter+bias_size
+--   end
+--end
 
 
 

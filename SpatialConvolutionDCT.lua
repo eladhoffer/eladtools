@@ -25,9 +25,12 @@ function SpatialConvolutionDCT:reset(stdv)
       self.weight:uniform(-stdv, stdv)
       self.bias:uniform(-stdv, stdv)
    end
+   if self.nInputPlane>1 then
+       self.weight:copy(odct3dict(self.nInputPlane,self.kW,self.kH,self.nOutputPlane):narrow(2,1,self.nOutputPlane):t())
+   else
 
-   self.weight:copy(odct3dict(self.nInputPlane,self.kW,self.kH,self.nOutputPlane):narrow(2,1,self.nOutputPlane):t())
-
+       self.weight:copy(odct2dict(self.kW,self.kH,self.nOutputPlane):narrow(2,1,self.nOutputPlane):t())
+   end
 end
 
 function SpatialConvolutionDCT:parameters()

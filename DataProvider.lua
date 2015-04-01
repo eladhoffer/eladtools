@@ -18,8 +18,8 @@ function DataProvider:__init(...)
     {...},
     'InitializeData',
     'Initializes a DataProvider ',
-    {arg='MaxNumItems', type='number', help='Number of Elements in each Batch',req = true},
-    {arg='Name', type='string', help='Name of DataProvider',req = true},
+    {arg='MaxNumItems', type='number', help='Number of Elements in each Batch',defalut = 1e6},
+    {arg='Name', type='string', help='Name of DataProvider',default = nil},
     {arg='TensorType', type='string', help='Type of Tensor', default = 'torch.FloatTensor'},
     {arg='ExtractFunction', type='function', help='function used to extract Data, Label and Info', default= function(...) return ... end},
     {arg='Source', type='table', help='source of DataProvider', req=true},
@@ -343,4 +343,102 @@ function FileSearcher:GetNextBatch()
     return nil
 end
 
+local LMDBProvider= torch.class('LMDBProvider')
+
+
+function LMDBProvider:__init(...)
+    xlua.require('torch',true)
+    require 'lmdb'
+    local args = dok.unpack(
+    {...},
+    'InitializeData',
+    'Initializes a DataProvider ',
+    {arg='Name', type='string', help='Name of DataProvider',req = true},
+    {arg='TensorType', type='string', help='Type of Tensor', default = 'torch.ByteTensor'},
+    {arg='ExtractFunction', type='function', help='function used to extract Data, Label and Info', default= function(...) return ... end},
+    {arg='Keys', type='userdata', help='keys tensor', req=true},
+    {arg='Source', type='userdata', help='LMDB env', req=true}
+
+    )
+
+    self.Name = args.Name
+    self.TensorType = args.TensorType
+    self.Source = args.Source
+    self.Keys = args.Keys
+    self.ExtractFunction = args.ExtractFunction
+    
+    self.Data = torch.Tensor():type(self.TensorType)
+    self.Labels = torch.Tensor():type('torch.LongTensor')
+
+    self.DB = self.Source
+
+    self.DB:open()
+    self.Ready = false
+end
+
+function LMDBProvider:SetKeys(keys)
+    self.Keys = keys
+end
+
+function LMDBProvider:size()
+    if type(self.Keys) == 'table' then
+        return #self.Keys
+    else
+        return self.Keys:size(1)
+    end
+end
+
+
+function LMDBProvider:Cache()
+    self.Ready = false
+    local txn = self.DB:txn(true)
+    if not self.SampleSize then
+        local data = txn:get(self.Keys[1])
+        local data, label = self.ExtractFunction(self.Keys[1], data)
+        self.SampleSize = data:size()
+    end
+    self.Data:resize(self:size(),unpack(self.SampleSize:totable()))
+    self.Labels:resize(self:size())
+    for i = 1, self:size() do
+        local data = txn:get(self.Keys[i])
+        self.Data[i], self.Labels[i] = self.ExtractFunction(self.Keys[i], data)
+    end
+    txn:abort()
+    self.Ready = true
+end
+function LMDBProvider:CacheSeq(start_pos, num)
+    self.Ready = false
+    local num = num or 1
+    self:SetKeys(torch.range(start_pos,start_pos+num-1):int())
+    local txn = self.DB:txn(true)
+    local cursor = txn:cursor()
+    cursor:set(start_pos)
+
+    if not self.SampleSize then
+        local key, data = cursor:get()
+        local data, label = self.ExtractFunction(key, data)
+        self.SampleSize = data:size()
+    end
+    self.Data:resize(num ,unpack(self.SampleSize:totable()))
+    self.Labels:resize(num)
+    for i = 1, num do
+        local key, data = cursor:get(key)
+        self.Data[i], self.Labels[i] = self.ExtractFunction(key, data)
+        cursor:next()
+    end
+    txn:abort()
+    self.Ready = true
+end
+
+function LMDBProvider:GetItems(location,num)
+    --Assumes location and num are valid
+    if not self.Ready then
+        return nil
+    end
+
+    local num = num or 1
+    local data = self.Data:narrow(1,location,num)
+    local labels = self.Labels:narrow(1,location,num) 
+    return data, labels
+end
 

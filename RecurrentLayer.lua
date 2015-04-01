@@ -54,6 +54,7 @@ function RecurrentLayer:updateOutput(input)
    for i=1,#self.modules do 
        currentOutput = self.modules[i]:updateOutput(currentOutput)
        if (#self.saved_outputs >= i) then
+           self.saved_outputs[i]:resizeAs(currentOutput)
            self.saved_outputs[i]:copy(currentOutput)
        else
            self.saved_outputs[i] = currentOutput:clone()
