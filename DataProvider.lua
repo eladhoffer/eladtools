@@ -94,11 +94,12 @@ end
 
 function DataProvider:ShuffleItems()
     local RandOrder = torch.randperm(self.Data:size(1)):long()
-    self.Data:indexCopy(1,RandOrder,self.Data)
+    self.Data = self.Data:index(1,RandOrder)
+
 
 
     if self.Labels:dim() > 0 then
-        self.Labels:indexCopy(1,RandOrder,self.Labels)
+        self.Labels = self.Labels:index(1,RandOrder)
     end
     --print('(DataProvider)===>Shuffling Items')
 
