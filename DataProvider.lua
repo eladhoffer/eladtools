@@ -446,7 +446,6 @@ function LMDBProvider:AsyncCacheSeq(start, num,data_buffer,labels_buffer)
     end,
     -- the endcallback (runs in the main thread)
     function(data,labels)
-        table.insert(self.Batches, {data,labels})
     end
     )
 end
@@ -462,7 +461,6 @@ function LMDBProvider:AsyncCacheRand(keys,data_buffer,labels_buffer)
     end,
     -- the endcallback (runs in the main thread)
     function(data,labels)
-        table.insert(self.Batches, {data,labels})
     end
     )
 end
