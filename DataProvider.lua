@@ -388,8 +388,10 @@ function LMDBProvider:CacheSeq(start_pos, num,data,labels)
     for i = 1, num do
         local data = cursor:getData()
         Data[i], Labels[i] = self.ExtractFunction(key, data)
-        cursor:next()
-    end
+        if i<num then
+            cursor:next()
+        end
+    end 
     cursor:close()
     txn:abort()
     self.Source:close()
@@ -434,9 +436,8 @@ function LMDBProvider:Threads(nthread)
     end
     )
 end
+
 function LMDBProvider:AsyncCacheSeq(start, num,data_buffer,labels_buffer)   
-
-
     self.threads:addjob(
     -- the job callback (runs in data-worker thread)
     function()
