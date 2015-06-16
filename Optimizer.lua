@@ -35,7 +35,7 @@ function Optimizer:optimize(x,yt)
         self.Gradients:zero()
         y = self.Model:forward(x)
         err = self.Loss:forward(y,yt)
-        local dE_dy = self.Loss:backward(y,yt):contiguous()
+        local dE_dy = self.Loss:backward(y,yt)
         self.Model:backward(x, dE_dy)
         if self.HookFunction then
             value = self.HookFunction(y,yt,err)
