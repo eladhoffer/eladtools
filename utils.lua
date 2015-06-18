@@ -1,4 +1,40 @@
 require 'image'
+require 'nn'
+
+function SwallowBN(model)
+    --Removes BatchNormalization if used without trainable weights (can be modified to include those)
+    --Batch Norm layers should be followed by either a Convolution or Linear layer
+    local new_model = nn.Sequential()
+    local i = 1
+    while i <= #model.modules do
+        local m = model.modules[i]
+        local next_m = nil
+        if i < #model.modules then
+            next_m = model.modules[i+1]
+        end
+        if torch.type(m):find('BatchNormalization') and torch.type(next_m):find('Convolution') then
+            local new_conv = next_m:clone()
+            new_conv.weight:cmul(m.running_std:view(1,-1,1,1):expandAs(new_conv.weight))
+            local bias_fix = -torch.mv(next_m.weight:sum(3):sum(4):squeeze(),torch.cmul(m.running_mean,m.running_std))
+            new_conv.bias:add(bias_fix)
+            new_model:add(new_conv)
+            i = i+2
+        elseif torch.type(m):find('BatchNormalization') and torch.type(next_m):find('Linear') then
+            local new_conv = next_m:clone()
+            new_conv.weight:cmul(m.running_std:view(1,-1):expandAs(new_conv.weight))
+            local bias_fix = -torch.mv(next_m.weight,torch.cmul(m.running_mean,m.running_std))
+            new_conv.bias:add(bias_fix)
+            new_model:add(new_conv)
+            i = i+2
+        else
+
+            new_model:add(m:clone())
+            i = i+1
+        end
+
+    end
+    return new_model
+end
 
 function PadTensor(im , SizeY, SizeX, pad, dy_middle, dx_middle)
     local dx_middle = dx_middle or 0
