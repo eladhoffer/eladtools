@@ -1,37 +1,44 @@
 require 'image'
 require 'nn'
 
-function SwallowBN(model)
+
+function SwallowBN(module, BN)
+    local bias_fix
+    if module.weight:dim() > 2 then --convolutional 
+        bias_fix = -torch.mv(module.weight:sum(3):sum(4):squeeze(),torch.cmul(BN.running_mean,BN.running_std))
+        module.weight:cmul(BN.running_std:view(1,-1,1,1):expandAs(module.weight))
+    else
+        bias_fix = -torch.mv(module.weight,torch.cmul(BN.running_mean,BN.running_std))
+        module.weight:cmul(BN.running_std:view(1,-1):expandAs(module.weight))
+    end
+
+    module.bias:add(bias_fix)
+end
+
+function RemoveBN(model)
     --Removes BatchNormalization if used without trainable weights (can be modified to include those)
     --Batch Norm layers should be followed by either a Convolution or Linear layer
     local new_model = nn.Sequential()
     local i = 1
     while i <= #model.modules do
         local m = model.modules[i]
-        local next_m = nil
-        if i < #model.modules then
-            next_m = model.modules[i+1]
-        end
-        if torch.type(m):find('BatchNormalization') and torch.type(next_m):find('Convolution') then
-            local new_conv = next_m:clone()
-            new_conv.weight:cmul(m.running_std:view(1,-1,1,1):expandAs(new_conv.weight))
-            local bias_fix = -torch.mv(next_m.weight:sum(3):sum(4):squeeze(),torch.cmul(m.running_mean,m.running_std))
-            new_conv.bias:add(bias_fix)
-            new_model:add(new_conv)
-            i = i+2
-        elseif torch.type(m):find('BatchNormalization') and torch.type(next_m):find('Linear') then
-            local new_conv = next_m:clone()
-            new_conv.weight:cmul(m.running_std:view(1,-1):expandAs(new_conv.weight))
-            local bias_fix = -torch.mv(next_m.weight,torch.cmul(m.running_mean,m.running_std))
-            new_conv.bias:add(bias_fix)
-            new_model:add(new_conv)
-            i = i+2
+        if m.modules then
+            new_model:add(SwallowBN(m))
         else
-
-            new_model:add(m:clone())
-            i = i+1
+            local next_m = nil
+            if i < #model.modules then
+                next_m = model.modules[i+1]
+            end
+            if torch.type(m):find('BatchNormalization') and (torch.type(next_m):find('Convolution') or  torch.type(next_m):find('Linear')) then
+                local new_conv = next_m:clone()
+                SwallowBN(new_conv, m)
+                new_model:add(new_conv)
+                i = i+2
+            else
+                new_model:add(m:clone())
+                i = i+1
+            end
         end
-
     end
     return new_model
 end
