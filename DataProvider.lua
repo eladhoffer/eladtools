@@ -87,8 +87,8 @@ function DataProvider:__tostring__()
 end
 
 
-function DataProvider:BatchFilename(num) 
-    return paths.concat(self.CachePrefix,self.Name .. '_Batch' .. num) 
+function DataProvider:BatchFilename(num)
+    return paths.concat(self.CachePrefix,self.Name .. '_Batch' .. num)
 end
 
 
@@ -111,7 +111,7 @@ function DataProvider:GetItems(location,num)
     --Assumes location and num are valid
     local num = num or 1
     local data = self.Data:narrow(1,location,num)
-    local labels = self.Labels:narrow(1,location,num) 
+    local labels = self.Labels:narrow(1,location,num)
     return data, labels
 end
 
@@ -295,7 +295,7 @@ function FileSearcher:__init(...)
 
         for i,p in pairs(path) do
             local num
-            local numNewItems = tonumber(sys.execute('ls ' .. p .. '| wc -l')) 
+            local numNewItems = tonumber(sys.execute('ls ' .. p .. '| wc -l'))
             if i==1 then
                 self.Data = torch.CharTensor(numNewItems,self.maxStringLength)
                 num = 1
@@ -303,7 +303,7 @@ function FileSearcher:__init(...)
 
                 local currSize = self.Data:size()
                 num = currSize[1] + 1
-                currSize[1] = currSize[1] + numNewItems 
+                currSize[1] = currSize[1] + numNewItems
                 self.Data:resize(currSize)
             end
             print('(DataProvider)===>Generating filenames from path' .. p)
@@ -318,7 +318,7 @@ function FileSearcher:__init(...)
             end
         end
 
-        if args.Shuffle then    
+        if args.Shuffle then
             self:ShuffleItems()
         end
         if self.CacheFiles then
@@ -355,17 +355,14 @@ function LMDBProvider:__init(...)
     'InitializeData',
     'Initializes a DataProvider ',
     {arg='ExtractFunction', type='function', help='function used to extract Data, Label and Info', req = true},
-    {arg='Source', type='userdata', help='LMDB env', req=true},
-    {arg='SampleSize', type='table', help='size of data sample', req=true}
+    {arg='Source', type='userdata', help='LMDB env', req=true}
 
     )
 
     self.Name = args.Name
     self.Source = args.Source
     self.ExtractFunction = args.ExtractFunction
-    self.SampleSize = args.SampleSize
     self.Config = ...
-    self.Batches = {}
 end
 
 
@@ -391,7 +388,7 @@ function LMDBProvider:CacheSeq(start_pos, num,data,labels)
         if i<num then
             cursor:next()
         end
-    end 
+    end
     cursor:close()
     txn:abort()
     self.Source:close()
@@ -428,7 +425,6 @@ function LMDBProvider:Threads(nthread)
     function()
         require 'lmdb'
         require 'eladtools'
-        require 'trepl'
         --lmdb.verbose = false
     end,
     function(idx)
@@ -437,7 +433,7 @@ function LMDBProvider:Threads(nthread)
     )
 end
 
-function LMDBProvider:AsyncCacheSeq(start, num,data_buffer,labels_buffer)   
+function LMDBProvider:AsyncCacheSeq(start, num,data_buffer,labels_buffer)
     self.threads:addjob(
     -- the job callback (runs in data-worker thread)
     function()
@@ -450,7 +446,7 @@ function LMDBProvider:AsyncCacheSeq(start, num,data_buffer,labels_buffer)
     )
 end
 
-function LMDBProvider:AsyncCacheRand(keys,data_buffer,labels_buffer)   
+function LMDBProvider:AsyncCacheRand(keys,data_buffer,labels_buffer)
 
 
     self.threads:addjob(
@@ -465,6 +461,6 @@ function LMDBProvider:AsyncCacheRand(keys,data_buffer,labels_buffer)
     )
 end
 
-function LMDBProvider:Synchronize()   
+function LMDBProvider:Synchronize()
     return self.threads:synchronize()
 end
