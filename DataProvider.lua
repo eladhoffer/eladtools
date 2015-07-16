@@ -141,7 +141,9 @@ function DataProvider:SaveBatch()
 end
 
 function DataProvider:CreateBatch()
-
+    if not self.Source then
+      return nil
+    end
     if self.CurrentItemSource > self.Source:size() then
         if not self.AutoLoad then
             return nil
