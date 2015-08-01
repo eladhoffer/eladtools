@@ -15,7 +15,7 @@ x= torch.rand(1,3,10,10):mul(100)
 
 
 model:evaluate()
-y = model:forward(x)
+y = model:forward(x):clone()
 
 
 reduced = RemoveBN(model)
