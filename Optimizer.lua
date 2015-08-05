@@ -8,6 +8,7 @@ function Optimizer:__init(...)
     'Optimizer','Initialize an optimizer',
     {arg='Model', type ='table', help='Optimized model',req=true},
     {arg='Loss', type ='function', help='Loss function',req=true},
+    {arg='Regime', type ='table', help='Training Regime Table',default = nil},
     {arg='L1Coeff', type ='number', help='L1 Regularization coeff',default=0},
     {arg='Parameters', type = 'table', help='Model parameters - weights and gradients',req=false},
     {arg='OptFunction', type = 'function', help = 'Optimization function' ,req = true},
@@ -16,6 +17,7 @@ function Optimizer:__init(...)
     )
     self.Model = args.Model
     self.Loss = args.Loss
+    self.Regime = args.Regime
     self.Parameters = args.Parameters
     self.OptFunction = args.OptFunction
     self.OptState = args.OptState
@@ -24,8 +26,8 @@ function Optimizer:__init(...)
     if self.Parameters == nil then
         self.Parameters = {}
         self.Weights, self.Gradients = self.Model:getParameters()
-    else	
-        self.Weights, self.Gradients = self.Parameters[1], self.Parameters[2] 
+    else
+        self.Weights, self.Gradients = self.Parameters[1], self.Parameters[2]
     end
 end
 
@@ -40,7 +42,7 @@ function Optimizer:optimize(x,yt)
         if self.HookFunction then
             value = self.HookFunction(y,yt,err)
         end
-        
+
         if self.L1Coeff>0 then
             self.Gradients:add(torch.sign(self.Weights):mul(self.L1Coeff))
         end
@@ -51,6 +53,22 @@ function Optimizer:optimize(x,yt)
     return y, err,value, opt_value
 end
 
+function Optimizer:updateRegime(epoch)
+  if self.Regime then
+    if self.Regime.epoch then
+      for _,epochVal in pairs(self.Regime['epoch']) do
+        if epochVal == epoch then
+          for optValue,_ in pairs(self.Regime) do
+            if self.OptState[optValue] then
+              print(optValue,': ',self.OptState[optValue], ' -> ', self.Regime[optValue][epochVal])
+              self.OptState[optValue] = self.Regime[optValue][epochVal]
+            end
+          end
+        end
+      end
+    end
+  end
+end
 --function Optimizer:optimStates(opts)--opts must be of for {{weight = optimState, bias = optimState} .... }
 --    for i, optimState in ipairs(opts) do
 --local weight_size = self.Weights:size(1)
@@ -68,7 +86,3 @@ end
 --      counter = counter+bias_size
 --   end
 --end
-
-
-
-
