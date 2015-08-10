@@ -53,14 +53,16 @@ function Optimizer:optimize(x,yt)
     return y, err,value, opt_value
 end
 
-function Optimizer:updateRegime(epoch)
+function Optimizer:updateRegime(epoch, verbose)
   if self.Regime then
     if self.Regime.epoch then
       for epochNum,epochVal in pairs(self.Regime['epoch']) do
         if epochVal == epoch then
           for optValue,_ in pairs(self.Regime) do
             if self.OptState[optValue] then
-              print(optValue,': ',self.OptState[optValue], ' -> ', self.Regime[optValue][epochNum])
+              if verbose then
+                print(optValue,': ',self.OptState[optValue], ' -> ', self.Regime[optValue][epochNum])
+              end
               self.OptState[optValue] = self.Regime[optValue][epochNum]
             end
           end

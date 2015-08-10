@@ -3,7 +3,6 @@ require 'cunn'
 local SpatialNMS, parent = torch.class('nn.SpatialNMS', 'nn.Module')
 
 function SpatialNMS:__init(ratio)
-  self.ratio = ratio or 0.25
   self.output = torch.Tensor()
   self.mask = torch.Tensor()
   self.indices = torch.Tensor()

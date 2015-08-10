@@ -241,8 +241,8 @@ function DataProvider:Normalize(normType, mean, std)
       mean = mean or self.Data:view(size,-1):mean(1):view(1, channels, y_size, x_size)
       std = std or self.Data:view(size,-1):std(1):view(1, channels, y_size, x_size)
     end
-    self.Data:add(-1, mean:expand(size,channels,y_size,x_size))
-    self.Data:cdiv(std:expand(size,channels,y_size,x_size))
+    self.Data:add(-1, mean:typeAs(self.Data):expand(size,channels,y_size,x_size))
+    self.Data:cdiv(std:typeAs(self.Data):expand(size,channels,y_size,x_size))
   end
 
   return mean, std
@@ -412,8 +412,8 @@ end
       local Data = data or {}
       local Labels = labels or {}
       for i = 1, num do
-        local data = cursor:getData()
-        Data[i], Labels[i] = self.ExtractFunction(key, data)
+        local key, data = cursor:get()
+        Data[i], Labels[i] = self.ExtractFunction(data, key)
         if i<num then
           cursor:next()
         end
@@ -438,7 +438,7 @@ end
 
       for i = 1, num do
         local item = txn:get(keys[i])
-        Data[i], Labels[i] = self.ExtractFunction(keys[i], item)
+        Data[i], Labels[i] = self.ExtractFunction(item, keys[i])
       end
       txn:abort()
       self.Source:close()

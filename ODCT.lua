@@ -1,4 +1,4 @@
-function kron(A,B)
+local function kron(A,B)
     local m, n = A:size(1), A:size(2)
     local p, q = B:size(1), B:size(2)
     local C = torch.Tensor(m*p,n*q)
@@ -12,7 +12,7 @@ function kron(A,B)
 end
 
 
-function odctdict(n,L)
+local function odctdict(n,L)
     D = torch.zeros(n,L)
     D[{{},1}]:fill(1/math.sqrt(n))
     for k=2,L do
@@ -24,7 +24,7 @@ function odctdict(n,L)
     return D
 end
 
-function odct2dict(w,h,L)
+local function odct2dict(w,h,L)
 
     n = math.ceil(math.sqrt(L))
     D = odctdict(w,n)
@@ -32,7 +32,7 @@ function odct2dict(w,h,L)
     return D
 end
 
-function odct3dict(ndim,w,h,L)
+local function odct3dict(ndim,w,h,L)
     local l = math.ceil(math.pow(L,1/3))
     local sz = ndim*w*h
     local n = torch.FloatTensor({ndim,w,h}):pow(3):div(sz):pow(1/2):mul(L):pow(1/3):ceil()
@@ -45,4 +45,3 @@ function odct3dict(ndim,w,h,L)
     D = kron(D,odctdict(h,n[3]))
     return D--:narrow(2,1,L):contiguous()
 end
-
