@@ -9,5 +9,4 @@ FIND_PACKAGE(Torch REQUIRED)
 
 SET(src)
 FILE(GLOB luasrc *.lua)
-SET(luasrc ${luasrc} test/test.lua)
 ADD_TORCH_PACKAGE(eladtools "${src}" "${luasrc}" "eladtools")
