@@ -34,7 +34,7 @@ end
 function Optimizer:optimize(x,yt)
     local y, err, value
     local f_eval = function()
-        self.Gradients:zero()
+        self.Model:zeroGradParameters()
         y = self.Model:forward(x)
         err = self.Loss:forward(y,yt)
         local dE_dy = self.Loss:backward(y,yt)
