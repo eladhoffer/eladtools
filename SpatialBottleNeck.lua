@@ -12,23 +12,24 @@ end
 
 function SpatialBottleNeck:updateOutput(input)
   self.mask:typeAs(input):resizeAs(input):copy(input)
-  self.values:typeAs(input):resizeAs(input):zero()
+  self.values:typeAs(input):resizeAs(input)
+  self.output:typeAs(input):resizeAs(input)
   local dim = 2
   local size = math.floor(input:size(dim)*self.ratio)
 
 
   --indices = indices:narrow(dim,1,self.ratio)
-  self.values = input:sort(dim,true)
+  torch.sort(self.values,input, dim,true)
 
   self.mask:add(-self.values:narrow(dim,size+1,1):expandAs(input))
-  self.mask:copy(self.mask:gt(0))
+  torch.gt(self.mask, self.mask, 0)
   --self.mask:scatter(dim,indices,1):typeAs(input)
-  self.output = torch.cmul(input, self.mask)
+  torch.cmul(self.output, input, self.mask)
   return self.output
 end
 
 function SpatialBottleNeck:updateGradInput(input, gradOutput)
   self.gradInput:typeAs(input):resizeAs(input)
-  self.gradInput = torch.cmul(gradOutput,self.mask)
+  torch.cmul(self.gradInput, gradOutput,self.mask)
   return self.gradInput
 end
