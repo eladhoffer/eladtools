@@ -10,19 +10,15 @@ function Optimizer:__init(...)
     {arg='Loss', type ='function', help='Loss function',req=true},
     {arg='Regime', type ='table', help='Training Regime Table',default = nil},
     {arg='L1Coeff', type ='number', help='L1 Regularization coeff',default=0},
+    {arg='GradClip', type ='number', help='Gradient clipping value. zero for off',default=0},
     {arg='Parameters', type = 'table', help='Model parameters - weights and gradients',req=false},
     {arg='OptFunction', type = 'function', help = 'Optimization function' ,req = true},
     {arg='OptState', type = 'table', help='Optimization configuration', default = {}, req=false},
     {arg='HookFunction', type = 'function', help='Hook function of type fun(y,yt,err)', req = false}
     )
-    self.Model = args.Model
-    self.Loss = args.Loss
-    self.Regime = args.Regime
-    self.Parameters = args.Parameters
-    self.OptFunction = args.OptFunction
-    self.OptState = args.OptState
-    self.HookFunction = args.HookFunction
-    self.L1Coeff = args.L1Coeff
+    for x,val in pairs(args) do
+        self[x] = val
+    end
     if self.Parameters == nil then
         self.Parameters = {}
         self.Weights, self.Gradients = self.Model:getParameters()
@@ -45,6 +41,10 @@ function Optimizer:optimize(x,yt)
 
         if self.L1Coeff>0 then
             self.Gradients:add(torch.sign(self.Weights):mul(self.L1Coeff))
+        end
+
+        if self.GradClip > 0 then
+          self.Gradients:clamp(-self.GradClip, self.GradClip)
         end
 
         return err, self.Gradients
