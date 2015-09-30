@@ -3,69 +3,51 @@ require 'paths'
 
 local EarlyStop = torch.class('EarlyStop')
 
-function EarlyStop:__init(AllowedBadIters, MaximumIterations, Model, path)
-    self.AllowedBadIters = AllowedBadIters or 5
-    self.MaximumIterations = MaximumIterations or -1
-    self.Iter = 0
-    self.LastError = 100
-    self.LowestError = 100
-    self.BestIter = 0
-    self.BadStreak = 0
-    self.Stopped = false
-    self.Model = Model
-if path then
-    self.filename = paths.concat(path, 'BestNetEarlyStop' )
-end
+function EarlyStop:__init(allowedBadIters, maxIterations)
+    self.allowedBadIters = allowedBadIters or 5
+    self.maxIterations = maxIterations or -1
+    self.iteration = 0
+    self.bestIteration = 0
+    self.badStreak = 0
+    self.stopped = false
 end
 
-function EarlyStop:SaveNet()
-    torch.save(self.filename,self.Model)
-end
+function EarlyStop:update(currentError)
+    self.iteration = self.iteration + 1
 
-function EarlyStop:Update(Success)
-    self.Iter = self.Iter + 1
-        
-    local CurrentError = 100 - Success
-    if (CurrentError < self.LowestError) then
-        self.BadStreak = 0
-        self.LowestError = CurrentError
-        self.BestIter = self.Iter
-        if self.Model then
-            self:SaveNet()
-        end
+    if (self.iteration == 1 or currentError < self.lowestError) then
+        self.badStreak = 0
+        self.lowestError = currentError
+        self.bestIteration = self.iteration
     else
-        self.BadStreak = self.BadStreak + 1
+        self.badStreak = self.badStreak + 1
     end
 
-    self.LastError = CurrentError
+    self.lastError = currentError
 
-    if (self.BadStreak >= self.AllowedBadIters) then
-        self.Stopped = true --stop
+    if (self.badStreak >= self.allowedBadIters) then
+        self.stopped = true --stop
     else
-        self.Stopped = false --continue
+        self.stopped = false --continue
     end
 
-    if self.Iter == self.MaximumIterations then
-        self.Stopped = true
+    if self.iteration == self.maxIterations then
+        self.stopped = true
     end
 
 
-    return self.Stopped
-end
-function EarlyStop:ResetCount()
-	self.BadStreak = 0
+    return self.stopped
 end
 
-function EarlyStop:Stop()
-    return self.Stopped
+function EarlyStop:reset()
+	self.badStreak = 0
+  self.stopped = false
 end
 
-function EarlyStop:PrintStatus()
-    if self.Stopped then
-        print('Stopped after ' .. tostring(self.Iter) .. ' iterations, with Error: ' .. tostring(self.LastError))
-    else
-        print(tostring(self.Iter) .. ' iterations, Current Error: ' .. tostring(self.LastError))
-    end
-    print('Best Iteration: ' .. tostring(self.BestIter) .. ' with ' .. tostring(self.LowestError))
+function EarlyStop:stop()
+    return self.stopped
 end
 
+function EarlyStop:lowest()
+    return self.lowestError, self.bestIteration
+end
