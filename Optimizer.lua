@@ -11,6 +11,7 @@ function Optimizer:__init(...)
     {arg='Regime', type ='table', help='Training Regime Table',default = nil},
     {arg='L1Coeff', type ='number', help='L1 Regularization coeff',default=0},
     {arg='GradClip', type ='number', help='Gradient clipping value. zero for off',default=0},
+    {arg='GradRenorm', type ='number', help='Gradient renorm value. zero for off',default=0},
     {arg='Parameters', type = 'table', help='Model parameters - weights and gradients',req=false},
     {arg='OptFunction', type = 'function', help = 'Optimization function' ,req = true},
     {arg='OptState', type = 'table', help='Optimization configuration', default = {}, req=false},
@@ -28,29 +29,37 @@ function Optimizer:__init(...)
 end
 
 function Optimizer:optimize(x,yt)
-    local y, err, value
-    local f_eval = function()
-        self.Model:zeroGradParameters()
-        y = self.Model:forward(x)
-        err = self.Loss:forward(y,yt)
-        local dE_dy = self.Loss:backward(y,yt)
-        self.Model:backward(x, dE_dy)
-        if self.HookFunction then
-            value = self.HookFunction(y,yt,err)
-        end
-
-        if self.L1Coeff>0 then
-            self.Gradients:add(torch.sign(self.Weights):mul(self.L1Coeff))
-        end
-
-        if self.GradClip > 0 then
-          self.Gradients:clamp(-self.GradClip, self.GradClip)
-        end
-
-        return err, self.Gradients
+  local y, err, value
+  local f_eval = function()
+    self.Model:zeroGradParameters()
+    y = self.Model:forward(x)
+    err = self.Loss:forward(y,yt)
+    local dE_dy = self.Loss:backward(y,yt)
+    self.Model:backward(x, dE_dy)
+    if self.HookFunction then
+      value = self.HookFunction(y,yt,err)
     end
-    local opt_value = self.OptFunction(f_eval, self.Weights, self.OptState)
-    return y, err,value, opt_value
+
+    if self.L1Coeff>0 then
+      self.Gradients:add(torch.sign(self.Weights):mul(self.L1Coeff))
+    end
+
+    if self.GradClip > 0 then
+      self.Gradients:clamp(-self.GradClip, self.GradClip)
+    end
+
+    if self.GradRenorm > 0 then
+      local norm = self.Gradients:norm()
+      if norm > self.GradRenorm then
+        local shrink = self.GradRenorm / norm
+        self.Gradients:mul(shrink)
+      end
+    end
+
+    return err, self.Gradients
+  end
+  local opt_value = self.OptFunction(f_eval, self.Weights, self.OptState)
+  return y, err,value, opt_value
 end
 
 function Optimizer:updateRegime(epoch, verbose)
