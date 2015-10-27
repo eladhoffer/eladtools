@@ -11,14 +11,11 @@ function SpatialBottleNeck:__init(ratio)
 end
 
 function SpatialBottleNeck:updateOutput(input)
-  self.mask:typeAs(input):resizeAs(input):copy(input)
-  self.values:typeAs(input):resizeAs(input)
-  self.output:typeAs(input):resizeAs(input)
+  self.mask = self.mask or input.new()
+  self.mask:resizeAs(input):copy(input)
   local dim = 2
   local size = math.floor(input:size(dim)*self.ratio)
 
-
-  --indices = indices:narrow(dim,1,self.ratio)
   torch.sort(self.values,input, dim,true)
 
   self.mask:add(-self.values:narrow(dim,size+1,1):expandAs(input))
@@ -29,7 +26,6 @@ function SpatialBottleNeck:updateOutput(input)
 end
 
 function SpatialBottleNeck:updateGradInput(input, gradOutput)
-  self.gradInput:typeAs(input):resizeAs(input)
   torch.cmul(self.gradInput, gradOutput,self.mask)
   return self.gradInput
 end

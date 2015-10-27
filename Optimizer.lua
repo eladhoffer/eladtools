@@ -12,6 +12,7 @@ function Optimizer:__init(...)
     {arg='L1Coeff', type ='number', help='L1 Regularization coeff',default=0},
     {arg='GradClip', type ='number', help='Gradient clipping value. zero for off',default=0},
     {arg='GradRenorm', type ='number', help='Gradient renorm value. zero for off',default=0},
+    {arg='GradRescale', type ='number', help='Gradient rescale value. zero for off',default=0},
     {arg='Parameters', type = 'table', help='Model parameters - weights and gradients',req=false},
     {arg='OptFunction', type = 'function', help = 'Optimization function' ,req = true},
     {arg='OptState', type = 'table', help='Optimization configuration', default = {}, req=false},
@@ -52,6 +53,14 @@ function Optimizer:optimize(x,yt)
       local norm = self.Gradients:norm()
       if norm > self.GradRenorm then
         local shrink = self.GradRenorm / norm
+        self.Gradients:mul(shrink)
+      end
+    end
+
+    if self.GradRescale > 0 then
+      local norm = math.max(self.Gradients:max(), -self.Gradients:min())
+      if norm > self.GradRescale then
+        local shrink = self.GradRescale / norm
         self.Gradients:mul(shrink)
       end
     end

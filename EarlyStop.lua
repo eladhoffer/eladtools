@@ -41,6 +41,7 @@ end
 
 function EarlyStop:reset()
 	self.badStreak = 0
+  self.iteration = 0
   self.stopped = false
 end
 

@@ -12,8 +12,10 @@ end
 
 function SpatialNMS:updateOutput(input)
   --if self.train then
-    self.mask:typeAs(input):resizeAs(input):zero()
-    self.indices:typeAs(input):resizeAs(input)
+    self.mask = self.mask or input.new()
+    self.mask:resizeAs(input):zero()
+    self.indices = self.indices or input.new()
+    self.indices:resizeAs(input)
     local dim = 2
 
     _, self.indices = input:max(dim)
