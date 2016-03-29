@@ -1,6 +1,5 @@
 require 'torch'
 require 'nn'
-require 'cunn'
 eladtools = {}
 torch.include('eladtools', 'RecurrentLayer.lua')
 torch.include('eladtools', 'EarlyStop.lua')
@@ -13,4 +12,4 @@ torch.include('eladtools', 'SpatialBottleNeck.lua')
 torch.include('eladtools', 'SpatialNMS.lua')
 torch.include('eladtools', 'GlobalDominantPooling.lua')
 torch.include('eladtools', 'SSU.lua')
-torch.include('eladtools', 'Reverse.lua')
+torch.include('eladtools', 'OrthLinear.lua')
